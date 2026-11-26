@@ -5,6 +5,7 @@ import toolReplay from '../fixtures/tool-events.json';
 import uiDataFixture from '../fixtures/ui-data.json';
 import uiFallbackReplay from '../fixtures/ui-fallback.json';
 import uiReplay from '../fixtures/ui-blocks.json';
+import visualReplay from '../fixtures/visual-first.json';
 import { shellService } from '../mygo';
 import { isActiveStatus, latestSeq } from './activity';
 import { usageFromEvents } from './usage';
@@ -451,15 +452,17 @@ export class FakeIPC implements IPC {
     const blocks: UIBlock[] = [];
 
     const params = new URLSearchParams(location.search);
-    const stream = (params.get('approval') === '1'
-      ? approvalReplay
-      : params.get('tools') === '1'
-        ? toolReplay
-        : params.get('ui') === 'fallback'
-          ? uiFallbackReplay
-          : params.get('ui') === '1'
-            ? uiReplay
-            : replay) as RunEvent[];
+    const stream = (params.get('visual') === '1'
+      ? visualReplay
+      : params.get('approval') === '1'
+        ? approvalReplay
+        : params.get('tools') === '1'
+          ? toolReplay
+          : params.get('ui') === 'fallback'
+            ? uiFallbackReplay
+            : params.get('ui') === '1'
+              ? uiReplay
+              : replay) as RunEvent[];
     void (async () => {
       for (const recorded of stream) {
         if (controller.cancelled) break;

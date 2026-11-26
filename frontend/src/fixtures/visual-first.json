@@ -1,0 +1,66 @@
+[
+  {
+    "runId": "RUN_ID",
+    "seq": 1,
+    "type": "run.queued",
+    "timestamp": "2026-11-26T10:00:00.000Z",
+    "payload": { "version": 1, "status": "queued" }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 2,
+    "type": "run.started",
+    "timestamp": "2026-11-26T10:00:00.010Z",
+    "payload": { "version": 1, "status": "running" }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 3,
+    "type": "tool.proposed",
+    "timestamp": "2026-11-26T10:00:00.300Z",
+    "payload": {
+      "version": 1,
+      "callId": "call-visual",
+      "name": "render_ui",
+      "risk": "compute",
+      "input": { "kind": "chart" },
+      "executed": false,
+      "status": "proposed"
+    }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 4,
+    "type": "ui.block",
+    "timestamp": "2026-11-26T10:00:00.600Z",
+    "payload": {
+      "version": 1,
+      "schemaVersion": "sasmita.ui/v1",
+      "blockId": "uib_visual",
+      "spec": {
+        "schemaVersion": "sasmita.ui/v1",
+        "blockId": "uib_visual",
+        "kind": "explain",
+        "title": "Error by threshold",
+        "summary": "Compare deterministic and stochastic rounding.",
+        "components": [
+          { "id": "err-chart", "type": "chart", "label": "Error by threshold", "values": [{ "label": "0", "value": 1 }, { "label": "1", "value": 4 }] }
+        ]
+      }
+    }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 5,
+    "type": "model.text_delta",
+    "timestamp": "2026-11-26T10:00:00.800Z",
+    "payload": { "version": 1, "text": "Berikut penjelasannya." }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 6,
+    "type": "run.completed",
+    "timestamp": "2026-11-26T10:00:01.000Z",
+    "payload": { "version": 1, "status": "completed" }
+  }
+]
