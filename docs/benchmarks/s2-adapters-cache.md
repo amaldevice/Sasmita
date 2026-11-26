@@ -10,6 +10,13 @@ proactively: *fix the adapters, do not change the architecture*. Only fake
 `httptest` providers were used; they verify request-byte invariants, not provider
 behavior.
 
+One unverified compatibility risk: the Anthropic Messages API has no official
+top-level `session_id`. We emit the hashed key there for Anthropic-compatible
+gateways that use it for sticky routing (e.g. OpenRouter), as required by the
+ticket. Without live credentials we could not check whether a strict Anthropic
+endpoint rejects unknown fields; if it does, move it to a gateway-specific
+header/field in a follow-up. No architecture change is needed.
+
 ## The breakpoint / golden-prefix tension
 
 A 5m breakpoint must sit on the **last content block**. On the next turn that
