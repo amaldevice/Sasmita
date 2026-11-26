@@ -3,11 +3,19 @@
   import Activity from './lib/Activity.svelte';
   import Composer from './lib/Composer.svelte';
   import Connections from './lib/Connections.svelte';
+  import EmptyState from './lib/EmptyState.svelte';
   import InterruptedRun from './lib/InterruptedRun.svelte';
   import Icon from './lib/Icon.svelte';
+  import Onboarding from './lib/Onboarding.svelte';
   import Sidebar from './lib/Sidebar.svelte';
   import { i18n } from './lib/i18n.svelte';
   import { createIPC, type IPC } from './lib/ipc';
+  import {
+    completeOnboarding,
+    createOnboardingIPC,
+    shouldShowOnboarding,
+    type ExamplePrompt,
+  } from './lib/onboarding';
   import { ChatRun } from './lib/run.svelte';
   import { theme } from './lib/theme.svelte';
   import type { Conversation, ConversationDetail, Project, RunRecord, SearchResult, ShellView } from './lib/types';
@@ -39,6 +47,8 @@
   let renameDraft = $state('');
   let moving = $state(false);
   let moveProject = $state('');
+  let showOnboarding = $state(false);
+  let examplePrompts = $state<ExamplePrompt[]>([]);
 
   // A conversation without a project has no root_uri, so no folder action.
   let hasFolder = $derived.by(() => {
@@ -50,10 +60,14 @@
 
   onMount(async () => {
     ipc = createIPC();
-    const [recent, projectList] = await Promise.all([
+    const onboarding = createOnboardingIPC();
+    const [recent, projectList, prompts] = await Promise.all([
       ipc.listRecentConversations('', 50),
       ipc.listProjects(),
+      onboarding.listExamplePrompts(),
     ]);
+    examplePrompts = prompts;
+    showOnboarding = shouldShowOnboarding();
     conversations = recent.items;
     projects = projectList;
     if (conversations.length === 0) {
@@ -254,10 +268,7 @@
         {/if}
 
         {#if detail?.messages.length === 0 && !run.answer}
-          <div class="empty">
-            <h2>{i18n.t('startConversation')}</h2>
-            <p>{i18n.t('askFirst')}</p>
-          </div>
+          <EmptyState prompts={examplePrompts} onsuggest={(text) => void send(text)} />
         {/if}
 
         {#each detail?.messages ?? [] as message (message.id)}
@@ -360,6 +371,10 @@
       </section>
     {/if}
   </main>
+
+  {#if showOnboarding}
+    <Onboarding onDone={() => { completeOnboarding(); showOnboarding = false; }} />
+  {/if}
 </div>
 
 <style>
@@ -383,8 +398,6 @@
   }
   .inline-edit button, .search-form button { padding: 8px 14px; border-radius: 6px; background: var(--raise); color: var(--text); }
   .thread { flex: 1; overflow-y: auto; padding: 24px; }
-  .empty { margin: 15vh auto 0; max-width: 70ch; text-align: center; color: var(--mute); }
-  .empty h2 { margin-bottom: 8px; color: var(--text); font-size: 24px; font-weight: 600; }
   .message { max-width: 760px; margin: 0 0 20px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
   .message.user { margin-left: auto; background: var(--raise); }
   .message.streaming { border-color: var(--flow); }

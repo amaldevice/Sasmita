@@ -9,6 +9,7 @@ import (
 
 	"github.com/amaldevice/sasmita/internal/appsvc"
 	"github.com/amaldevice/sasmita/internal/domain"
+	"github.com/amaldevice/sasmita/internal/onboarding"
 )
 
 type ConversationDTO struct {
@@ -110,13 +111,16 @@ type Bindings interface {
 	DeleteProviderProfile(ctx context.Context, id string) error
 	ListModels(ctx context.Context, profileID string) ([]ModelInfoDTO, error)
 	TestConnection(ctx context.Context, profileID string) (ConnectionResultDTO, error)
+	ListExamplePrompts(ctx context.Context) []ExamplePromptDTO
+	DetectLocalEndpoints(ctx context.Context) ([]LocalEndpointDTO, error)
 }
 
 // Service adapts the application service to the typed bindings. It is shared
 // by every shell implementation.
 type Service struct {
-	svc       *appsvc.Service
-	providers *appsvc.ProviderService
+	svc        *appsvc.Service
+	providers  *appsvc.ProviderService
+	localProbe onboarding.Probe
 }
 
 var _ Bindings = (*Service)(nil)
