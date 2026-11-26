@@ -22,6 +22,8 @@
     <strong data-testid="approval-action">{approval.action}</strong>
   </div>
   <dl>
+    <dt>{i18n.t('tool')}</dt>
+    <dd class="num" data-testid="approval-tool">{approval.toolId}</dd>
     <dt>{i18n.t('resource')}</dt>
     <dd data-testid="approval-resource">{approval.resource}</dd>
     <dt>{i18n.t('impact')}</dt>

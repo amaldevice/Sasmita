@@ -19,6 +19,7 @@ import (
 	"github.com/amaldevice/sasmita/internal/genui"
 	"github.com/amaldevice/sasmita/internal/model"
 	"github.com/amaldevice/sasmita/internal/tools"
+	"github.com/amaldevice/sasmita/internal/tools/discovery"
 )
 
 // Engine is the only surface appsvc sees. Its inputs and outputs are domain
@@ -59,6 +60,7 @@ type Config struct {
 	Checkpoints CheckpointStore // Eino ADK checkpoint bytes
 	States      CheckpointStore // app-owned pause state, under its own key prefix
 	Approvals   ApprovalGate
+	Discovery   *discovery.Service
 	NewID       func() string
 }
 
@@ -82,9 +84,14 @@ type engine struct {
 }
 
 func (e *engine) Run(ctx context.Context, req Request, emit func(domain.AgentSignal)) (Result, error) {
+	definitions := e.builder.Tools
+	if e.cfg.Discovery != nil {
+		definitions = e.cfg.Discovery.Definitions(req.ConversationID)
+	}
 	loop := &loopAgent{
 		engine: e, req: req, emit: emit,
 		working: append([]domain.Message(nil), req.History...),
+		builder: ctxlayout.Builder{Tools: definitions},
 	}
 	runner := adk.NewRunner(ctx, adk.RunnerConfig{
 		Agent: loop, CheckPointStore: e.cfg.Checkpoints,
