@@ -26,6 +26,8 @@ import (
 
 type shellService struct {
 	bindings *desktop.Service
+	app      *appsvc.Service
+	live     liveReporter
 }
 
 func (s *shellService) CreateConversation(ctx context.Context, projectID, title, harnessID string) (desktop.ConversationDTO, error) {
@@ -230,6 +232,7 @@ func setup(shell *shellService) error {
 	bindings := desktop.NewServiceWithProviders(app, providerService)
 	bindings.SetUIDataDir(artifactsDir)
 	shell.bindings = bindings
+	shell.app = app
 	return nil
 }
 
@@ -252,6 +255,7 @@ func main() {
 				e.PreventDefault()
 			}
 		})
+		startWatchdog(context.Background(), win.Page(), shell.app, &shell.live)
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)

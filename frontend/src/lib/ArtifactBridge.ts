@@ -183,6 +183,40 @@ export class ArtifactBridge {
   }
 }
 
+/**
+ * Host-side helpers for the off-screen lifecycle. They use the same key and
+ * 32 KB cap as the bridge's saveState/loadState, so a parked artifact resumes
+ * from exactly the state the iframe last reported.
+ */
+export function saveArtifactState(key: string, state: unknown): boolean {
+  const bytes = byteLength(state);
+  if (bytes > MAX_STATE_BYTES) {
+    record({ type: 'saveState', accepted: false, reason: 'too_large' });
+    return false;
+  }
+  try {
+    localStorage.setItem(key, JSON.stringify(state ?? null));
+  } catch {
+    record({ type: 'saveState', accepted: false, reason: 'storage' });
+    return false;
+  }
+  record({ type: 'saveState', accepted: true });
+  return true;
+}
+
+export function loadArtifactState(key: string): unknown {
+  let state: unknown = null;
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) state = JSON.parse(raw);
+  } catch {
+    state = null;
+  }
+  if (byteLength(state) > MAX_STATE_BYTES) state = null;
+  record({ type: 'loadState', accepted: true });
+  return state;
+}
+
 function isBoundedNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 65536;
 }
