@@ -52,8 +52,8 @@
   <div class={['composer', focused && 'focus', compact && 'compact']}>
     <textarea rows="1" placeholder={s.placeholder} bind:value onfocus={() => (focused = true)} onblur={() => (focused = false)}></textarea>
     <div class="chips">
-      <button class="chip">{s.mode}</button>
-      <button class="chip">{s.model}</button>
+      <button class="chip">{s.mode}<svg class="car" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg></button>
+      <button class="chip">{s.model}<svg class="car" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg></button>
       <button class="chip icon" aria-label={s.attach}>{@render icon('attach')}</button>
       <button class={['send', value && 'ready']} aria-label="Send">{@render icon('up')}</button>
     </div>
@@ -69,7 +69,7 @@
 <style>
   .ic { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
   .side { background: var(--side); border-right: 1px solid var(--line); padding: 18px 12px; display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: auto; }
-  .brand { font: 800 20px var(--display); letter-spacing: -0.02em; padding: 4px 10px 16px; }
+  .brand { font: 700 19px var(--display); letter-spacing: -0.01em; padding: 4px 10px 16px; }
   .nav, .chat { display: flex; gap: 12px; align-items: center; width: 100%; text-align: left; padding: 8px 10px; border-radius: var(--r-sm); font-weight: 500; transition: background 150ms var(--ease-out); }
   .nav:hover, .chat:hover { background: var(--raise); }
   .nav .ic { color: var(--mute); }
@@ -90,15 +90,17 @@
   .rbtn:hover { background: var(--raise); color: var(--text); }
   .railDot { position: absolute; top: 140px; right: 14px; }
 
-  .composer { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 12px 14px 10px 20px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28); transition: border-color 200ms var(--ease-out), box-shadow 200ms var(--ease-out); }
-  .composer.focus { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28), 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent); }
+  .composer { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 12px 14px 10px 20px; box-shadow: 0 6px 20px -6px rgba(0, 0, 0, 0.45); transition: border-color 200ms var(--ease-out), box-shadow 200ms var(--ease-out); }
+  .composer.focus { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); box-shadow: 0 6px 20px -6px rgba(0, 0, 0, 0.45), 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent); }
   textarea { width: 100%; resize: none; background: none; border: 0; color: var(--text); font: inherit; outline: none; padding: 4px 0 8px; }
   textarea::placeholder { color: var(--mute); }
   .chips { display: flex; gap: 8px; align-items: center; }
-  .chip { border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 13.5px; font-weight: 600; transition: background 150ms var(--ease-out); }
+  .chip { display: inline-flex; align-items: center; gap: 2px; border-radius: 6px; padding: 4px 6px 4px 8px; font-size: 14px; font-weight: 500; color: var(--mute); transition: background 150ms var(--ease-out), color 150ms var(--ease-out); }
+  .chip:hover { color: var(--text); }
+  .car { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; }
   .chip:hover { background: var(--raise); }
   .chip.icon { padding: 4px 8px; display: grid; place-items: center; }
-  .send { margin-left: auto; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--raise); color: var(--mute); transition: background 200ms var(--ease-out), color 200ms var(--ease-out), transform 120ms var(--ease-out); }
+  .send { margin-left: auto; width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; background: var(--raise); color: var(--mute); transition: background 200ms var(--ease-out), color 200ms var(--ease-out), transform 120ms var(--ease-out); }
   .send.ready { background: var(--text); color: var(--bg); }
   .send:active { transform: scale(0.92); }
 

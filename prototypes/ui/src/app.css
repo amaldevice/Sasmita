@@ -1,11 +1,11 @@
 /* PROTOTYPE tokens. Three worlds x dark/light. The real app would self-host fonts. */
 :root {
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --r-sm: 8px; --r-md: 12px; --r-lg: 22px;
+  --r-sm: 6px; --r-md: 10px; --r-lg: 16px;
 }
 
 [data-world='papan'] {
-  --font: 'Plus Jakarta Sans', sans-serif; --display: var(--font);
+  --font: 'Schibsted Grotesk', sans-serif; --display: var(--font);
   --bg: #1c2925; --side: #17221f; --surface: #22312c; --raise: #2a3a34; --line: #2c3b36;
   --text: #e9e6da; --mute: #aeb7ae; --accent: #f0d36a; --flow: #8cc3e6; --attn: #ee97ae; --ok: #9fd4a3;
   --user: #26362f; --on-accent: #1c2925;
@@ -16,7 +16,7 @@
   --user: #e6ebe4; --on-accent: #ffffff;
 }
 [data-world='koran'] {
-  --font: 'Plus Jakarta Sans', sans-serif; --display: 'Newsreader', serif;
+  --font: 'Schibsted Grotesk', sans-serif; --display: 'Literata', serif;
   --bg: #172029; --side: #121a22; --surface: #1f2a35; --raise: #26323e; --line: #2e3b48;
   --text: #e6eaee; --mute: #9aa6b2; --accent: #d49a2c; --flow: #5b8fd0; --attn: #e0574c; --ok: #7cc48a;
   --user: #22303c; --on-accent: #172029;
@@ -27,7 +27,7 @@
   --user: #e7e3da; --on-accent: #ffffff;
 }
 [data-world='canon'] {
-  --font: 'Inter', sans-serif; --display: var(--font);
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; --display: var(--font);
   --bg: #212121; --side: #181818; --surface: #2a2a2a; --raise: #303030; --line: #333333;
   --text: #ececec; --mute: #9a9a9a; --accent: #6ea8fe; --flow: #3b82f6; --attn: #f87171; --ok: #4ade80;
   --user: #303030; --on-accent: #0b1220;
@@ -41,6 +41,7 @@
 * { box-sizing: border-box; margin: 0; }
 html, body, #app { height: 100%; }
 body {
+  font-size: 16.5px;
   background: var(--bg); color: var(--text); font: 16px/1.6 var(--font);
   -webkit-font-smoothing: antialiased; transition: background 300ms var(--ease-out), color 300ms var(--ease-out);
 }
@@ -53,3 +54,5 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
 }
+
+p, li { text-wrap: pretty; }

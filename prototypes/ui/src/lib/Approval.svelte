@@ -30,7 +30,7 @@
 {/if}
 
 <style>
-  .user { margin: 28px 0 14px auto; width: max-content; max-width: 80%; background: var(--user); padding: 10px 18px; border-radius: 18px 18px 4px 18px; }
+  .user { margin: 28px 0 14px auto; width: max-content; max-width: 80%; background: var(--user); padding: 10px 18px; border-radius: 14px; }
   .card { border: 1px solid color-mix(in srgb, var(--attn) 55%, var(--line)); background: var(--surface); border-radius: var(--r-md); padding: 16px 18px; animation: hold 1.8s ease-in-out infinite alternate; }
   @keyframes hold { from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--attn) 0%, transparent); } to { box-shadow: 0 0 0 4px color-mix(in srgb, var(--attn) 18%, transparent); } }
   .head { display: flex; gap: 10px; align-items: center; margin-bottom: 6px; }
@@ -38,7 +38,7 @@
   code { font: 600 14px ui-monospace, Menlo, monospace; background: var(--raise); padding: 2px 6px; border-radius: 6px; }
   .d { color: var(--mute); font-size: 14.5px; margin: 4px 0 12px; }
   .btns { display: flex; gap: 8px; flex-wrap: wrap; }
-  .btns button { padding: 7px 14px; border-radius: 999px; border: 1px solid var(--line); font-weight: 600; font-size: 14px; transition: background 150ms var(--ease-out), transform 120ms var(--ease-out); }
+  .btns button { padding: 7px 14px; border-radius: 6px; border: 1px solid var(--line); font-weight: 600; font-size: 14px; transition: background 150ms var(--ease-out), transform 120ms var(--ease-out); }
   .btns button:hover { background: var(--raise); }
   .btns button:active { transform: scale(0.97); }
   .btns .primary { background: var(--text); color: var(--bg); border-color: var(--text); }

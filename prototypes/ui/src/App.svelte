@@ -2,9 +2,7 @@
   // PROTOTYPE: three layouts (?variant=A|B|C) x three visual worlds (?world=papan|koran|canon),
   // plus ?theme=dark|light and ?lang=id|en. Throwaway; lives on branch prototype/ui-design.
   import { onMount } from 'svelte';
-  import VariantA from './variants/VariantA.svelte';
-  import VariantB from './variants/VariantB.svelte';
-  import VariantC from './variants/VariantC.svelte';
+  import Workspace from './variants/Workspace.svelte';
   import Switcher from './lib/Switcher.svelte';
   import { t, type Lang } from './lib/i18n';
   import { AnswerRun, tokenize } from './lib/run.svelte';
@@ -45,11 +43,9 @@
     return () => run.destroy();
   });
 
-  const Variants = { A: VariantA, B: VariantB, C: VariantC } as const;
-  let View = $derived(Variants[variant as keyof typeof Variants] ?? VariantA);
 </script>
 
 {#key runKey}
-  <View {s} {run} {tokens} {world} />
+  <Workspace {s} {run} {tokens} />
 {/key}
 <Switcher {variant} {world} {theme} {lang} {set} replay={restart} />

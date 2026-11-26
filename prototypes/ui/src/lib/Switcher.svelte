@@ -16,13 +16,9 @@
   }
 </script>
 
-<svelte:window {onkeydown} />
 
 <div class="bar" role="toolbar" aria-label="Prototype switcher">
-  <button onclick={() => cycle(-1)} aria-label="Previous variant">‹</button>
-  <span class="label">{variant} ({variants[idx]?.[1]})</span>
-  <button onclick={() => cycle(1)} aria-label="Next variant">›</button>
-  <i></i>
+  <span class="label">PROTOTYPE</span>
   <select value={world} onchange={(e) => set('world', e.currentTarget.value)} aria-label="World">
     {#each worlds as [k, n] (k)}<option value={k}>{n}</option>{/each}
   </select>
@@ -35,7 +31,7 @@
   .bar { position: fixed; left: 50%; top: 12px; translate: -50% 0; z-index: 99; display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 999px; background: #0b0b0f; color: #fff; font: 600 13px system-ui, sans-serif; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45); border: 1px solid #ffffff22; }
   button, select { color: #fff; background: #ffffff14; border: 0; border-radius: 999px; padding: 5px 10px; font: inherit; cursor: pointer; }
   button:hover, select:hover { background: #ffffff26; }
-  .label { min-width: 170px; text-align: center; }
+  .label { padding: 0 6px; opacity: 0.6; }
   i { width: 1px; height: 18px; background: #ffffff33; margin: 0 4px; }
   select option { color: #000; }
 </style>
