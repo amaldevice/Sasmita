@@ -1,4 +1,5 @@
-import type { RunEvent } from './types';
+import { answerFromSnapshot } from './activity';
+import type { RunEvent, RunSnapshot } from './types';
 
 /**
  * Reduces the versioned RunEvent stream into the answer shown in the chat.
@@ -8,6 +9,8 @@ export class ChatRun {
   runId = $state('');
   answer = $state('');
   streaming = $state(false);
+  status = $state('');
+  cancelling = $state(false);
   seq = $state(0);
   error = $state('');
   deltaCount = $state(0);
@@ -19,11 +22,24 @@ export class ChatRun {
 
   begin(): void {
     this.streaming = true;
+    this.status = 'queued';
+    this.cancelling = false;
     this.answer = '';
     this.seq = 0;
     this.error = '';
     this.deltaCount = 0;
     this.usage = null;
+  }
+
+  /** Rebuild stream-derived UI state from GetRunSnapshot after reconnect. */
+  restore(snapshot: RunSnapshot): void {
+    this.begin();
+    this.runId = snapshot.runId;
+    for (const event of snapshot.events) this.apply(event);
+    this.answer = answerFromSnapshot(snapshot);
+    this.status = snapshot.status;
+    this.streaming = false;
+    this.cancelling = false;
   }
 
   apply(event: RunEvent): void {
@@ -37,6 +53,28 @@ export class ChatRun {
       usage?: { inputTokens: number; outputTokens: number; cacheReadTokens: number };
     };
     switch (event.type) {
+      case 'run.queued':
+        this.status = 'queued';
+        break;
+      case 'run.preparing':
+        this.status = 'preparing';
+        break;
+      case 'run.started':
+        this.status = 'running';
+        this.streaming = true;
+        break;
+      case 'run.cancelling':
+        this.status = 'cancelling';
+        this.cancelling = true;
+        break;
+      case 'tool.approval_required':
+        // Approval policy is a later ticket; the run state can represent the wait.
+        this.status = 'awaiting_approval';
+        break;
+      case 'run.interrupted':
+        this.status = 'interrupted';
+        this.streaming = false;
+        break;
       case 'model.text_delta':
         this.answer += payload.text ?? '';
         this.deltaCount += 1;
@@ -45,12 +83,19 @@ export class ChatRun {
         if (payload.usage) this.usage = payload.usage;
         break;
       case 'run.completed':
+        this.status = 'completed';
         this.streaming = false;
         break;
       case 'run.failed':
-      case 'run.cancelled':
+        this.status = 'failed';
         this.streaming = false;
         this.error = payload.message ?? 'Run stopped';
+        break;
+      case 'run.cancelled':
+        this.status = 'cancelled';
+        this.streaming = false;
+        this.cancelling = false;
+        this.error = payload.message ?? 'Run dibatalkan';
         break;
     }
   }

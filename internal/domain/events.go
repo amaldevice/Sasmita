@@ -12,14 +12,29 @@ const RunEventSchemaVersion = 1
 // Event types used by the v1 walking skeleton. Further tickets extend this list.
 const (
 	EventRunQueued           = "run.queued"
+	EventRunPreparing        = "run.preparing"
 	EventRunStarted          = "run.started"
+	EventRunCancelling       = "run.cancelling"
 	EventRunCompleted        = "run.completed"
 	EventRunFailed           = "run.failed"
 	EventRunCancelled        = "run.cancelled"
+	EventRunInterrupted      = "run.interrupted"
+	EventApprovalRequired    = "tool.approval_required"
 	EventModelRequestStarted = "model.request_started"
 	EventModelTextDelta      = "model.text_delta"
 	EventModelUsage          = "model.usage"
 )
+
+// IsImportantEvent reports events that must never be dropped for UI
+// backpressure: terminal states and approval transitions (TAD §14.3).
+func IsImportantEvent(eventType string) bool {
+	switch eventType {
+	case EventRunCompleted, EventRunFailed, EventRunCancelled, EventApprovalRequired:
+		return true
+	default:
+		return false
+	}
+}
 
 // RunEvent is the versioned stream item crossing IPC. JSON tags are verbatim
 // from TAD §14.2; the Playwright seam replays these objects unchanged.
@@ -54,6 +69,14 @@ type UsagePayload struct {
 
 type ErrorPayload struct {
 	Envelope
+	Message string `json:"message"`
+}
+
+// ApprovalPayload represents an approval wait in the run stream. The policy
+// engine that decides approvals is a later ticket (#23).
+type ApprovalPayload struct {
+	Envelope
+	Status  string `json:"status,omitempty"`
 	Message string `json:"message"`
 }
 

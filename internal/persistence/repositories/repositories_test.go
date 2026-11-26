@@ -2,6 +2,7 @@ package repositories_test
 
 import (
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -101,5 +102,83 @@ func TestRunEventsMonotonicSeq(t *testing.T) {
 		if ev.Seq != uint64(i+1) {
 			t.Errorf("event %d seq = %d, want %d", i, ev.Seq, i+1)
 		}
+	}
+}
+
+func seedRun(t *testing.T, store *repositories.Store, id string, status domain.RunStatus) {
+	t.Helper()
+	if err := store.CreateRun(t.Context(), &domain.Run{ID: id, ConversationID: "c1", Status: status,
+		ModelRef: "m", HarnessID: "chat", StartedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func seedConversation(t *testing.T, store *repositories.Store) {
+	t.Helper()
+	now := time.Now()
+	ctx := t.Context()
+	if err := store.CreateProject(ctx, &domain.Project{ID: "p1", Name: "Work", CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateConversation(ctx, &domain.Conversation{ID: "c1", ProjectID: "p1", Title: "First", CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Persistence must reject transitions outside TAD §8.3 and must never replace
+// a terminal (or recovered/interrupted) state with another state.
+func TestRunTransitionPersistence(t *testing.T) {
+	store := newStore(t, filepath.Join(t.TempDir(), "sasmita.db"))
+	ctx := t.Context()
+	seedConversation(t, store)
+	seedRun(t, store, "r1", domain.RunQueued)
+
+	if err := store.UpdateRunStatus(ctx, "r1", domain.RunPreparing, nil); err != nil {
+		t.Fatalf("queued -> preparing: %v", err)
+	}
+	if err := store.UpdateRunStatus(ctx, "r1", domain.RunRunning, nil); err != nil {
+		t.Fatalf("preparing -> running: %v", err)
+	}
+	finished := time.Now()
+	if err := store.UpdateRunStatus(ctx, "r1", domain.RunCompleted, &finished); err != nil {
+		t.Fatalf("running -> completed: %v", err)
+	}
+	if err := store.UpdateRunStatus(ctx, "r1", domain.RunRunning, nil); !errors.Is(err, domain.ErrTerminalRun) {
+		t.Fatalf("completed -> running error = %v, want ErrTerminalRun", err)
+	}
+
+	seedRun(t, store, "r2", domain.RunQueued)
+	if err := store.UpdateRunStatus(ctx, "r2", domain.RunCompleted, nil); !errors.Is(err, domain.ErrIllegalTransition) {
+		t.Fatalf("queued -> completed error = %v, want ErrIllegalTransition", err)
+	}
+	got, err := store.GetRun(ctx, "r2")
+	if err != nil || got.Status != domain.RunQueued {
+		t.Fatalf("illegal transition changed status: %+v (err %v)", got, err)
+	}
+
+	if err := store.UpdateRunStatus(ctx, "r1", domain.RunCancelled, nil); !errors.Is(err, domain.ErrTerminalRun) {
+		t.Fatalf("terminal overwrite error = %v, want ErrTerminalRun", err)
+	}
+}
+
+// A resume is a new run attempt explicitly tied to the original run.
+func TestRetryRunCarriesOriginalID(t *testing.T) {
+	store := newStore(t, filepath.Join(t.TempDir(), "sasmita.db"))
+	ctx := t.Context()
+	seedConversation(t, store)
+	seedRun(t, store, "original", domain.RunInterrupted)
+
+	retry := &domain.Run{ID: "retry", ConversationID: "c1", Status: domain.RunQueued,
+		ModelRef: "m", HarnessID: "chat", StartedAt: time.Now(), OriginalRunID: "original"}
+	if err := store.StartRetryTx(ctx, retry, time.Now()); err != nil {
+		t.Fatalf("StartRetryTx: %v", err)
+	}
+	got, err := store.GetRun(ctx, "retry")
+	if err != nil || got.OriginalRunID != "original" {
+		t.Fatalf("retry run = %+v (err %v)", got, err)
+	}
+	original, err := store.GetRun(ctx, "original")
+	if err != nil || original.Status != domain.RunInterrupted {
+		t.Fatalf("original run changed: %+v (err %v)", original, err)
 	}
 }

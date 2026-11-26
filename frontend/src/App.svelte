@@ -1,14 +1,16 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import Activity from './lib/Activity.svelte';
   import Composer from './lib/Composer.svelte';
   import Connections from './lib/Connections.svelte';
+  import InterruptedRun from './lib/InterruptedRun.svelte';
   import Icon from './lib/Icon.svelte';
   import Sidebar from './lib/Sidebar.svelte';
   import { i18n } from './lib/i18n.svelte';
   import { createIPC, type IPC } from './lib/ipc';
   import { ChatRun } from './lib/run.svelte';
   import { theme } from './lib/theme.svelte';
-  import type { Conversation, ConversationDetail, Project, SearchResult, ShellView } from './lib/types';
+  import type { Conversation, ConversationDetail, Project, RunRecord, SearchResult, ShellView } from './lib/types';
 
   let ipc = $state<IPC | null>(null);
   let conversations = $state<Conversation[]>([]);
@@ -17,6 +19,16 @@
   let detail = $state<ConversationDetail | null>(null);
   let draft = $state('');
   let run = $state(new ChatRun());
+  let runs = $state<RunRecord[]>([]);
+  let interrupted = $derived.by(() => {
+    const stale = runs.find(
+      (record) => record.conversationId === selectedId && record.status === 'interrupted',
+    );
+    // Once a retry is tied to the original run, Continue is no longer offered.
+    if (!stale || runs.some((record) => record.originalRunId === stale.runId)) return null;
+    return stale;
+  });
+
   let showConnections = $state(false);
   let collapsed = $state(false);
   let view = $state<ShellView>('chat');
@@ -52,14 +64,22 @@
     selectedId = first.id;
     detail = await ipc.getConversation(first.id);
     moveProject = detail.conversation.projectId;
+    await refreshRuns();
   });
 
+  async function refreshRuns() {
+    if (!ipc || !selectedId) return;
+    runs = await ipc.listRuns(selectedId);
+  }
+
   // On terminal, reload canonical history from the typed binding so the
-  // streamed answer is replaced by the persisted message.
+  // streamed answer is replaced by the persisted message. Run state is also
+  // refreshed so a recovered run can offer Continue.
   $effect(() => {
     if (ipc && run.runId && !run.streaming) {
       const id = selectedId;
       void ipc.getConversation(id).then((loaded) => { detail = loaded; });
+      void refreshRuns();
     }
   });
 
@@ -77,6 +97,21 @@
     moveProject = detail.conversation.projectId;
     renaming = false;
     moving = false;
+    await refreshRuns();
+  }
+
+  async function cancel() {
+    if (!ipc || !run.runId) return;
+    await ipc.cancelRun(run.runId);
+  }
+
+  async function continueRun() {
+    if (!ipc || !interrupted) return;
+    const original = interrupted;
+    run.begin();
+    const handle = await ipc.resumeRun(original.runId, (event) => run.apply(event));
+    run.setRunId(handle.runId);
+    await refreshRuns();
   }
 
   async function newChat() {
@@ -214,6 +249,10 @@
       {/if}
 
       <div class="thread" data-testid="thread">
+        {#if interrupted}
+          <InterruptedRun run={interrupted} onContinue={() => void continueRun()} />
+        {/if}
+
         {#if detail?.messages.length === 0 && !run.answer}
           <div class="empty">
             <h2>{i18n.t('startConversation')}</h2>
@@ -237,8 +276,10 @@
             <div class="role">Sasmita</div>
             <p>{run.answer}</p>
           </article>
-        {:else if run.streaming}
-          <div class="activity" data-testid="run-status">{i18n.t('working')}</div>
+        {/if}
+
+        {#if run.streaming}
+          <Activity status={run.status} cancelling={run.cancelling} onCancel={() => void cancel()} />
         {/if}
 
         {#if run.usage}
@@ -349,7 +390,6 @@
   .message.streaming { border-color: var(--flow); }
   .role { margin-bottom: 6px; color: var(--mute); font-size: 12px; }
   .message p { white-space: pre-wrap; line-height: 1.6; }
-  .activity { color: var(--mute); font-size: 14px; }
   .usage { margin: -8px 0 16px; color: var(--mute); font-size: 12px; }
   .error { color: var(--attn); }
   .panel > :global(form.composer) { margin: 0 24px 24px; }
