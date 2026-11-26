@@ -8,13 +8,14 @@ import (
 	"encoding/json"
 
 	"github.com/amaldevice/sasmita/internal/domain"
+	"github.com/amaldevice/sasmita/internal/harness"
 	"github.com/amaldevice/sasmita/internal/model"
 )
 
 // StaticSystemPrompt contains no per-request state: no date, cwd, git state or
 // workspace details. Dynamic information is a tail context note on a user turn
 // (ADR-0001, GLOSSARY "context note").
-const StaticSystemPrompt = "You are Sasmita. Answer clearly and concisely."
+const StaticSystemPrompt = "You are Sasmita. Answer clearly and concisely. " + harness.VisualFirstInstructions
 
 // SessionKey pins provider cache routing to a stable hash of the conversation
 // ID rather than a per-run or per-step value (research/prompt-caching.md #7).

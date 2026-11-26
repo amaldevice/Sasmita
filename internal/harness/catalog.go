@@ -19,6 +19,12 @@ var (
 	ErrModeUnavailable = errors.New("Mode is not available in this phase")
 )
 
+// VisualFirstInstructions is product instruction text shared by every Mode
+// (TAD §12A.15, ticket #30). A concept or process question gets a visual before
+// its explanation; a short answer stays text. It is static, so it cannot
+// perturb the byte-stable prefix: it is identical on every turn.
+const VisualFirstInstructions = "For concept or process questions, call render_ui or create_artifact FIRST, then write the explanation after the tool result. Simple answers stay text."
+
 // Mode is the declarative configuration of a working environment. Tool and
 // skill IDs are references; their contents are never part of this catalog.
 type Mode struct {

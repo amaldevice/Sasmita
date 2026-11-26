@@ -19,6 +19,10 @@ export class ChatRun {
   usage = $state<UsageData | null>(null);
   steps = $state<ToolStep[]>([]);
   blocks = $state<UIBlock[]>([]);
+  /** A visual tool was proposed but its visual has not arrived yet. */
+  visualPending = $state(false);
+  /** Most recent sandboxed artifact produced by this run. */
+  artifactRef = $state('');
   startedAt = $state('');
   lastEventAt = $state('');
 
