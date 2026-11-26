@@ -49,11 +49,34 @@ func TestMigrateFromEmptyAndIdempotent(t *testing.T) {
 		found[name] = true
 	}
 	for _, table := range []string{
-		"schema_migrations", "projects", "conversations", "messages",
+		"schema_migrations", "schema_migration_files", "projects", "conversations", "messages",
 		"runs", "run_events", "usage_records",
 	} {
 		if !found[table] {
 			t.Errorf("table %q was not created", table)
 		}
+	}
+
+	// Migration 004 must apply even while another ticket's 002 is not yet in
+	// this branch; its retry linkage column is the proof.
+	columns, err := db.Query(`PRAGMA table_info(runs)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer columns.Close()
+	hasOriginal := false
+	for columns.Next() {
+		var cid, notnull, pk int
+		var name, typ string
+		var dflt any
+		if err := columns.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			t.Fatal(err)
+		}
+		if name == "original_run_id" {
+			hasOriginal = true
+		}
+	}
+	if !hasOriginal {
+		t.Error("migration 004 did not add runs.original_run_id")
 	}
 }

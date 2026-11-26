@@ -155,44 +155,63 @@ func (s *Store) ListMessages(ctx context.Context, conversationID string, limit i
 
 func (s *Store) CreateRun(ctx context.Context, r *domain.Run) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO runs(id, conversation_id, status, model_ref, harness_id, started_at, finished_at)
-		 VALUES(?,?,?,?,?,?,NULL)`,
-		r.ID, r.ConversationID, string(r.Status), r.ModelRef, r.HarnessID, stamp(r.StartedAt))
+		`INSERT INTO runs(id, conversation_id, status, model_ref, harness_id, started_at, finished_at, original_run_id)
+		 VALUES(?,?,?,?,?,?,NULL,?)`,
+		r.ID, r.ConversationID, string(r.Status), r.ModelRef, r.HarnessID, stamp(r.StartedAt), nullableID(r.OriginalRunID))
 	return err
 }
 
-// UpdateRunStatus persists a transition. A terminal state is never overwritten
-// silently (TAD §8.3).
+func nullableID(id string) any {
+	if id == "" {
+		return nil
+	}
+	return id
+}
+
+// UpdateRunStatus persists a transition only when TAD §8.3 allows it. A
+// terminal or recovered/interrupted state is never overwritten silently.
 func (s *Store) UpdateRunStatus(ctx context.Context, runID string, status domain.RunStatus, finishedAt *time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var current string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM runs WHERE id = ?`, runID).Scan(&current); err != nil {
+		if err == sql.ErrNoRows {
+			return domain.ErrNotFound
+		}
+		return err
+	}
+	from := domain.RunStatus(current)
+	if from.Terminal() || from == domain.RunInterrupted {
+		return domain.ErrTerminalRun
+	}
+	if !from.CanTransitionTo(status) {
+		return domain.ErrIllegalTransition
+	}
 	var finished any
 	if finishedAt != nil {
 		finished = stamp(*finishedAt)
 	}
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE runs SET status = ?, finished_at = ?
-		 WHERE id = ? AND status NOT IN ('completed','failed','cancelled')`,
-		string(status), finished, runID)
-	if err != nil {
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE runs SET status = ?, finished_at = ? WHERE id = ?`,
+		string(status), finished, runID); err != nil {
 		return err
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return domain.ErrTerminalRun
-	}
-	return nil
+	return tx.Commit()
 }
 
 func (s *Store) GetRun(ctx context.Context, id string) (*domain.Run, error) {
 	var r domain.Run
 	var status, started string
 	var finished sql.NullString
+	var original sql.NullString
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, conversation_id, status, model_ref, harness_id, started_at, finished_at
+		`SELECT id, conversation_id, status, model_ref, harness_id, started_at, finished_at, original_run_id
 		 FROM runs WHERE id = ?`, id,
-	).Scan(&r.ID, &r.ConversationID, &status, &r.ModelRef, &r.HarnessID, &started, &finished)
+	).Scan(&r.ID, &r.ConversationID, &status, &r.ModelRef, &r.HarnessID, &started, &finished, &original)
 	if err == sql.ErrNoRows {
 		return nil, domain.ErrNotFound
 	}
@@ -203,6 +222,9 @@ func (s *Store) GetRun(ctx context.Context, id string) (*domain.Run, error) {
 	if finished.Valid {
 		t := parseStamp(finished.String)
 		r.FinishedAt = &t
+	}
+	if original.Valid {
+		r.OriginalRunID = original.String
 	}
 	return &r, nil
 }
@@ -283,9 +305,9 @@ func (s *Store) StartRunTx(ctx context.Context, run *domain.Run, msg *domain.Mes
 		return err
 	}
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO runs(id, conversation_id, status, model_ref, harness_id, started_at, finished_at)
-		 VALUES(?,?,?,?,?,?,NULL)`,
-		run.ID, run.ConversationID, string(run.Status), run.ModelRef, run.HarnessID, stamp(run.StartedAt),
+		`INSERT INTO runs(id, conversation_id, status, model_ref, harness_id, started_at, finished_at, original_run_id)
+		 VALUES(?,?,?,?,?,?,NULL,?)`,
+		run.ID, run.ConversationID, string(run.Status), run.ModelRef, run.HarnessID, stamp(run.StartedAt), nullableID(run.OriginalRunID),
 	); err != nil {
 		tx.Rollback()
 		return err
@@ -307,9 +329,28 @@ func (s *Store) StartRunTx(ctx context.Context, run *domain.Run, msg *domain.Mes
 }
 
 func (s *Store) ListRuns(ctx context.Context, conversationID string) ([]domain.Run, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, conversation_id, status, model_ref, harness_id, started_at, finished_at
+	return s.queryRuns(ctx,
+		`SELECT id, conversation_id, status, model_ref, harness_id, started_at, finished_at, original_run_id
 		 FROM runs WHERE conversation_id = ? ORDER BY rowid ASC`, conversationID)
+}
+
+// ListActiveRuns returns every run that can still do work; startup recovery
+// turns these into interrupted runs when their process is gone.
+func (s *Store) ListActiveRuns(ctx context.Context) ([]domain.Run, error) {
+	active := domain.ActiveStatuses()
+	args := make([]any, len(active))
+	placeholders := make([]string, len(active))
+	for i, status := range active {
+		args[i] = string(status)
+		placeholders[i] = "?"
+	}
+	return s.queryRuns(ctx,
+		`SELECT id, conversation_id, status, model_ref, harness_id, started_at, finished_at, original_run_id
+		 FROM runs WHERE status IN (`+strings.Join(placeholders, ",")+`) ORDER BY rowid ASC`, args...)
+}
+
+func (s *Store) queryRuns(ctx context.Context, query string, args ...any) ([]domain.Run, error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -318,8 +359,8 @@ func (s *Store) ListRuns(ctx context.Context, conversationID string) ([]domain.R
 	for rows.Next() {
 		var r domain.Run
 		var status, started string
-		var finished sql.NullString
-		if err := rows.Scan(&r.ID, &r.ConversationID, &status, &r.ModelRef, &r.HarnessID, &started, &finished); err != nil {
+		var finished, original sql.NullString
+		if err := rows.Scan(&r.ID, &r.ConversationID, &status, &r.ModelRef, &r.HarnessID, &started, &finished, &original); err != nil {
 			return nil, err
 		}
 		r.Status, r.StartedAt = domain.RunStatus(status), parseStamp(started)
@@ -327,9 +368,35 @@ func (s *Store) ListRuns(ctx context.Context, conversationID string) ([]domain.R
 			t := parseStamp(finished.String)
 			r.FinishedAt = &t
 		}
+		if original.Valid {
+			r.OriginalRunID = original.String
+		}
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// StartRetryTx starts a new attempt tied to an original run without appending
+// the user message again: the original turn stays canonical (TAD §8.3).
+func (s *Store) StartRetryTx(ctx context.Context, run *domain.Run, touchedAt time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO runs(id, conversation_id, status, model_ref, harness_id, started_at, finished_at, original_run_id)
+		 VALUES(?,?,?,?,?,?,NULL,?)`,
+		run.ID, run.ConversationID, string(run.Status), run.ModelRef, run.HarnessID, stamp(run.StartedAt), nullableID(run.OriginalRunID),
+	); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE conversations SET updated_at = ? WHERE id = ?`, stamp(touchedAt), run.ConversationID,
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) ListUsage(ctx context.Context, runID string) ([]domain.Usage, error) {

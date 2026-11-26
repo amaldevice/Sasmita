@@ -74,29 +74,8 @@ const (
 	RoleAssistant MessageRole = "assistant"
 )
 
-// RunStatus follows the state machine in TAD §8.3.
-type RunStatus string
-
-const (
-	RunQueued    RunStatus = "queued"
-	RunPreparing RunStatus = "preparing"
-	RunRunning   RunStatus = "running"
-	RunCompleted RunStatus = "completed"
-	RunFailed    RunStatus = "failed"
-	RunCancelled RunStatus = "cancelled"
-)
-
-// Terminal reports whether the status is a terminal state.
-func (s RunStatus) Terminal() bool {
-	switch s {
-	case RunCompleted, RunFailed, RunCancelled:
-		return true
-	default:
-		return false
-	}
-}
-
-// Run is the durable lifecycle record for one execution.
+// Run is the durable lifecycle record for one execution. OriginalRunID links a
+// retry/continue attempt to the run that was interrupted (TAD §8.3).
 type Run struct {
 	ID             string
 	ConversationID string
@@ -105,6 +84,7 @@ type Run struct {
 	HarnessID      string
 	StartedAt      time.Time
 	FinishedAt     *time.Time
+	OriginalRunID  string
 }
 
 // Usage is a provider-reported (or explicitly estimated) token measurement.
