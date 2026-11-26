@@ -386,6 +386,7 @@ func (s *Service) persistAssistant(ctx context.Context, run *domain.Run, text st
 		Role:           domain.RoleAssistant,
 		Content:        parts,
 		CreatedAt:      s.cfg.Now(),
+		RunID:          run.ID,
 	}
 	_ = s.store.AddMessage(ctx, message)
 }
