@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/amaldevice/sasmita/internal/agent"
+	"github.com/amaldevice/sasmita/internal/artifacts"
 	ctxlayout "github.com/amaldevice/sasmita/internal/context"
 	"github.com/amaldevice/sasmita/internal/domain"
 	"github.com/amaldevice/sasmita/internal/model"
@@ -41,6 +42,8 @@ type Config struct {
 	AttachedFiles  []string
 	ToolOutputCap  int
 	Agent          agent.Engine
+	// Artifacts opts the service into Tier 2 artifact commands and tools (#28).
+	Artifacts *artifacts.Service
 	// ContextNote supplies dynamic information for the tail note on the new
 	// user turn. It must never be placed in the static system instruction.
 	ContextNote func() string
@@ -89,7 +92,7 @@ func New(store *repositories.Store, cfg Config) *Service {
 			registry = tools.New(tools.Config{
 				ArtifactsDir: cfg.ArtifactsDir, WorkspaceRoots: cfg.WorkspaceRoots,
 				AttachedFiles: cfg.AttachedFiles, OutputCap: cfg.ToolOutputCap,
-				Search: store, NewID: cfg.NewID,
+				Search: store, NewID: cfg.NewID, Artifacts: cfg.Artifacts,
 			})
 			cfg.Tools = registry.Definitions()
 		}
