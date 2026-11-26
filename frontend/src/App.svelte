@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import Activity from './lib/Activity.svelte';
   import ArtifactLibrary from './lib/ArtifactLibrary.svelte';
+  import ArtifactLifecycle from './lib/ArtifactLifecycle.svelte';
   import { installArtifactNavigationGuard } from './lib/ArtifactNavigation';
   import { createArtifactIPC, fixtureArtifactData, type ArtifactRecord } from './lib/artifacts';
   import Composer from './lib/Composer.svelte';
@@ -410,6 +411,7 @@
             : ''}
           onSuggestPrompt={(prompt) => void send(prompt)}
         />
+        <ArtifactLifecycle />
       </section>
     {:else}
       <section class="view" data-testid="settings-view">
