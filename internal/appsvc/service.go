@@ -11,11 +11,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/amaldevice/sasmita/internal/agent"
 	ctxlayout "github.com/amaldevice/sasmita/internal/context"
 	"github.com/amaldevice/sasmita/internal/domain"
 	"github.com/amaldevice/sasmita/internal/model"
 	"github.com/amaldevice/sasmita/internal/persistence/repositories"
 	"github.com/amaldevice/sasmita/internal/runtime"
+	"github.com/amaldevice/sasmita/internal/tools"
 )
 
 const (
@@ -30,6 +32,14 @@ type Config struct {
 	CoalesceInterval time.Duration // 0 disables timer-based flushing
 	ContextLimit     int           // retained for callers; no longer truncates history
 	Tools            []model.ToolDefinition
+	// EnableTools opts a service into the built-in toolset (#22). Tool schemas
+	// are frozen for the service lifetime; without it the wire is unchanged.
+	EnableTools    bool
+	ArtifactsDir   string
+	WorkspaceRoots []string
+	AttachedFiles  []string
+	ToolOutputCap  int
+	Agent          agent.Engine
 	// ContextNote supplies dynamic information for the tail note on the new
 	// user turn. It must never be placed in the static system instruction.
 	ContextNote func() string
@@ -61,6 +71,20 @@ func New(store *repositories.Store, cfg Config) *Service {
 	}
 	if cfg.NewID == nil {
 		cfg.NewID = randomID
+	}
+	if cfg.Agent == nil {
+		var registry *tools.Registry
+		if cfg.EnableTools {
+			registry = tools.New(tools.Config{
+				ArtifactsDir: cfg.ArtifactsDir, WorkspaceRoots: cfg.WorkspaceRoots,
+				AttachedFiles: cfg.AttachedFiles, OutputCap: cfg.ToolOutputCap,
+				Search: store, NewID: cfg.NewID,
+			})
+			cfg.Tools = registry.Definitions()
+		}
+		cfg.Agent = agent.New(agent.Config{
+			Provider: cfg.Provider, Tools: registry, NewID: cfg.NewID,
+		})
 	}
 	// Freeze tools for the lifetime of the service (one conversation per run).
 	cfg.Tools = append([]model.ToolDefinition(nil), cfg.Tools...)

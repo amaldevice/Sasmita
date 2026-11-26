@@ -1,5 +1,6 @@
 import { Channel, isMyGo } from 'mygo-runtime';
 import replay from '../fixtures/run-events.json';
+import toolReplay from '../fixtures/tool-events.json';
 import { shellService } from '../mygo';
 import { isActiveStatus, latestSeq } from './activity';
 import type {
@@ -348,8 +349,10 @@ export class FakeIPC implements IPC {
     this.listeners.set(runId, onEvent);
     let answer = '';
 
+    const params = new URLSearchParams(location.search);
+    const stream = (params.get('tools') === '1' ? toolReplay : replay) as RunEvent[];
     void (async () => {
-      for (const recorded of replay as RunEvent[]) {
+      for (const recorded of stream) {
         if (controller.cancelled) break;
         const event: RunEvent = {
           ...recorded,
@@ -383,7 +386,6 @@ export class FakeIPC implements IPC {
           this.controllers.delete(runId);
           this.save();
         }
-        const params = new URLSearchParams(location.search);
         const stepParam = Number(params.get('step'));
         const stepMs = stepParam > 0 ? stepParam : params.get('slow') === '1' ? 220 : 16;
         await new Promise((resolve) => setTimeout(resolve, stepMs));

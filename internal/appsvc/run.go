@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/amaldevice/sasmita/internal/agent"
 	"github.com/amaldevice/sasmita/internal/domain"
 	"github.com/amaldevice/sasmita/internal/harness"
 	"github.com/amaldevice/sasmita/internal/model"
@@ -295,17 +296,16 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 		return
 	}
 	// Active context is a derived view of canonical history: Mode instructions
-	// and provider filtering never rewrite the stored messages.
+	// and provider filtering never rewrite the stored messages. The ADK agent
+	// builds each request from this view plus appended tool pairs.
 	mode, err := harness.Select(run.HarnessID)
 	if err != nil {
 		s.fail(ctx, persistCtx, run, stream, err)
 		return
 	}
 	view := harness.ActiveHistory(history, mode, s.providerKind)
-	request := s.builder.Build(run.ConversationID, run.ModelRef, run.ID, view)
 
 	var full, pending strings.Builder
-	var usage *model.Usage
 	var contentBlocks []json.RawMessage
 	flush := func() {
 		if pending.Len() == 0 {
@@ -316,28 +316,41 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 		pending.Reset()
 	}
 
-	streamErr := s.cfg.Provider.Stream(ctx, request, func(ev model.StreamEvent) {
-		switch ev.Kind {
-		case model.EventTextDelta:
-			full.WriteString(ev.Text)
-			pending.WriteString(ev.Text)
+	// The ADK-backed agent owns the tool loop. It appends tool call/result
+	// pairs to canonical history through the signals below; the earlier prefix
+	// is never rewritten (ADR-0001).
+	result, streamErr := s.cfg.Agent.Run(ctx, agent.Request{
+		ConversationID: run.ConversationID, RunID: run.ID, ModelRef: run.ModelRef, History: view,
+	}, func(sig domain.AgentSignal) {
+		switch sig.Kind {
+		case domain.AgentTextDelta:
+			full.WriteString(sig.Text)
+			pending.WriteString(sig.Text)
 			if pending.Len() >= s.cfg.CoalesceSize {
 				flush()
 			}
-		case model.EventUsage:
-			usage = ev.Usage
-			s.emit(persistCtx, stream, run.ID, domain.EventModelUsage,
-				domain.UsagePayload{Envelope: envelope(), Usage: toDomainUsage(*ev.Usage)})
-		case model.EventContentBlocks:
-			contentBlocks = append(contentBlocks, ev.ContentBlocks...)
+		case domain.AgentToolProposed, domain.AgentToolExecuted, domain.AgentToolArtifact, domain.AgentToolFailed:
+			s.emitToolSignal(persistCtx, stream, run.ID, sig)
+		case domain.AgentToolPair:
+			s.appendToolPair(persistCtx, run, sig.Tool)
 		}
 	})
 	flush()
+	if result.Text != "" && full.Len() == 0 {
+		full.WriteString(result.Text)
+		s.emit(persistCtx, stream, run.ID, domain.EventModelTextDelta,
+			domain.TextDeltaPayload{Envelope: envelope(), Text: result.Text})
+	}
+	if result.Usage != nil {
+		s.emit(persistCtx, stream, run.ID, domain.EventModelUsage,
+			domain.UsagePayload{Envelope: envelope(), Usage: toDomainUsage(*result.Usage)})
+	}
+	contentBlocks = result.Blocks
 
 	if full.Len() > 0 || len(contentBlocks) > 0 {
 		s.persistAssistant(persistCtx, run, full.String(), contentBlocks)
 	}
-	s.persistUsage(persistCtx, run, usage)
+	s.persistUsage(persistCtx, run, result.Usage)
 
 	if ctx.Err() != nil || errors.Is(streamErr, context.Canceled) {
 		// running -> cancelling -> cancelled (TAD §8.3). Each step is persisted.
@@ -420,4 +433,66 @@ func (s *Service) persistUsage(ctx context.Context, run *domain.Run, u *model.Us
 		return
 	}
 	_ = s.store.AddUsage(ctx, run.ID, toDomainUsage(*u))
+}
+
+// emitToolSignal turns a domain-level tool step into a versioned RunEvent.
+// The policy engine (#23) consumes proposed vs executed state here; this
+// ticket only reports it.
+func (s *Service) emitToolSignal(ctx context.Context, stream *eventStream, runID string, sig domain.AgentSignal) {
+	eventType := domain.EventToolExecuted
+	status := "executed"
+	switch sig.Kind {
+	case domain.AgentToolProposed:
+		eventType, status = domain.EventToolProposed, "proposed"
+	case domain.AgentToolArtifact:
+		eventType, status = domain.EventToolArtifact, "artifact"
+	case domain.AgentToolFailed:
+		eventType, status = domain.EventToolFailed, "failed"
+	}
+	payload := domain.ToolPayload{
+		Envelope: envelope(), CallID: sig.Tool.CallID, Name: sig.Tool.Name,
+		Risk: sig.Tool.Risk, Input: sig.Tool.Input, Output: sig.Tool.Output,
+		Summary: sig.Tool.Summary, ArtifactRef: sig.Tool.ArtifactRef,
+		Truncated: sig.Tool.Truncated, Executed: sig.Tool.Executed,
+		DurationMS: sig.Tool.DurationMS, Status: status, Error: sig.Tool.Error,
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	_ = s.emitRaw(ctx, stream, runID, eventType, raw, false)
+}
+
+// appendToolPair stores the assistant tool_use turn and its tool_result turn
+// without touching any earlier message. Canonical history is append-only.
+func (s *Service) appendToolPair(ctx context.Context, run *domain.Run, activity domain.ToolActivity) {
+	now := s.cfg.Now()
+	parts := rawParts(activity.AssistantBlocks)
+	if len(parts) > 0 {
+		_ = s.store.AddMessage(ctx, &domain.Message{
+			ID: s.cfg.NewID(), ConversationID: run.ConversationID,
+			Role: domain.RoleAssistant, Content: parts, CreatedAt: now,
+		})
+	}
+	parts = rawParts(activity.ResultBlocks)
+	if len(parts) > 0 {
+		_ = s.store.AddMessage(ctx, &domain.Message{
+			ID: s.cfg.NewID(), ConversationID: run.ConversationID,
+			Role: domain.RoleUser, Content: parts, CreatedAt: now,
+		})
+	}
+}
+
+func rawParts(blocks []json.RawMessage) []domain.ContentPart {
+	parts := make([]domain.ContentPart, 0, len(blocks))
+	for _, raw := range blocks {
+		var probe struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(raw, &probe) != nil {
+			continue
+		}
+		parts = append(parts, domain.ContentPart{Type: probe.Type, Raw: append(json.RawMessage(nil), raw...)})
+	}
+	return parts
 }
