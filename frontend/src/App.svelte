@@ -516,6 +516,7 @@
                   onmouseenter={() => (hoveredAnswer = message.id)}
                   onmouseleave={() => (hoveredAnswer = '')}
                 >
+                  <h2 class="answer-title" data-testid="answer-title">{i18n.t('answer')}</h2>
                   <div class="role">Sasmita</div>
                   <p>{message.text}</p>
                   <Usage
@@ -559,6 +560,7 @@
               {/if}
               {#if run.answer}
                 <article class="message streaming" data-testid="streaming-answer">
+                  <h2 class="answer-title" data-testid="answer-title">{i18n.t('answer')}</h2>
                   <div class="role">Sasmita</div>
                   <p>{run.answer}</p>
                   <Usage usage={run.usage} alwaysShow={usageSettings.alwaysShow} />
@@ -751,6 +753,8 @@
   .message { position: relative; max-width: 760px; margin: 0 0 20px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
   .message.user { margin-left: auto; background: var(--raise); }
   .message.streaming { border-color: var(--flow); }
+  .answer-title { margin: 0 0 12px; font-size: 30px; font-weight: 700; line-height: 1.2; }
+  .reading-column[data-view='baca'] .answer-title { font-size: 40px; }
   .role { margin-bottom: 6px; color: var(--mute); font-size: 12px; }
   .message p { white-space: pre-wrap; line-height: 1.6; }
   .error { color: var(--attn); }
