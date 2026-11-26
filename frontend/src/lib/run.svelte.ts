@@ -1,4 +1,5 @@
 import { answerFromSnapshot } from './activity';
+import { usageFromEvent, type UsageData } from './usage';
 import type { RunEvent, RunSnapshot, ToolStep } from './types';
 
 /**
@@ -14,7 +15,7 @@ export class ChatRun {
   seq = $state(0);
   error = $state('');
   deltaCount = $state(0);
-  usage = $state<{ inputTokens: number; outputTokens: number; cacheReadTokens: number } | null>(null);
+  usage = $state<UsageData | null>(null);
   steps = $state<ToolStep[]>([]);
   startedAt = $state('');
   lastEventAt = $state('');
@@ -65,7 +66,6 @@ export class ChatRun {
       version?: number;
       text?: string;
       message?: string;
-      usage?: { inputTokens: number; outputTokens: number; cacheReadTokens: number };
       callId?: string;
       name?: string;
       risk?: string;
@@ -120,9 +120,16 @@ export class ChatRun {
         this.answer += payload.text ?? '';
         this.deltaCount += 1;
         break;
-      case 'model.usage':
-        if (payload.usage) this.usage = payload.usage;
+      case 'model.usage': {
+        const usage = usageFromEvent(event);
+        if (usage) {
+          usage.durationMs = this.startedAt
+            ? Math.max(0, Date.parse(event.timestamp) - Date.parse(this.startedAt))
+            : 0;
+          this.usage = usage;
+        }
         break;
+      }
       case 'run.completed':
         this.status = 'completed';
         this.streaming = false;

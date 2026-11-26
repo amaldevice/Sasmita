@@ -1,0 +1,55 @@
+[
+  {
+    "runId": "hist-1",
+    "seq": 6,
+    "type": "model.usage",
+    "timestamp": "2026-11-24T10:00:00.100Z",
+    "payload": {
+      "version": 1,
+      "usage": {
+        "providerId": "openai", "modelId": "gpt-test",
+        "inputTokens": 1000, "outputTokens": 100, "cacheReadTokens": 800, "uncachedTokens": 200
+      }
+    }
+  },
+  {
+    "runId": "hist-2",
+    "seq": 6,
+    "type": "model.usage",
+    "timestamp": "2026-11-25T10:00:00.100Z",
+    "payload": {
+      "version": 1,
+      "usage": {
+        "providerId": "openai", "modelId": "gpt-test",
+        "inputTokens": 1000, "outputTokens": 110, "cacheReadTokens": 750, "uncachedTokens": 250
+      }
+    }
+  },
+  {
+    "runId": "hist-3",
+    "seq": 6,
+    "type": "model.usage",
+    "timestamp": "2026-11-26T10:00:00.100Z",
+    "payload": {
+      "version": 1,
+      "usage": {
+        "providerId": "openai", "modelId": "gpt-test",
+        "inputTokens": 1000, "outputTokens": 120, "cacheReadTokens": 400, "uncachedTokens": 600
+      }
+    }
+  },
+  {
+    "runId": "hist-4",
+    "seq": 6,
+    "type": "model.usage",
+    "timestamp": "2026-11-26T11:00:00.100Z",
+    "payload": {
+      "version": 1,
+      "usage": {
+        "providerId": "anthropic", "modelId": "claude-test",
+        "inputTokens": 500, "outputTokens": 50, "cacheReadTokens": 100, "uncachedTokens": 400,
+        "estimated": true
+      }
+    }
+  }
+]

@@ -3,6 +3,7 @@ import replay from '../fixtures/run-events.json';
 import toolReplay from '../fixtures/tool-events.json';
 import { shellService } from '../mygo';
 import { isActiveStatus, latestSeq } from './activity';
+import { usageFromEvents } from './usage';
 import type {
   Conversation,
   ConversationDetail,
@@ -376,6 +377,9 @@ export class FakeIPC implements IPC {
               role: 'assistant',
               text: answer,
               createdAt: new Date().toISOString(),
+              // Usage belongs to the answer, so a reopened conversation still
+              // shows the same figures on hover (same data as the Go read path).
+              usage: usageFromEvents(snapshot.events) ?? undefined,
             },
           ];
           const record = this.state.runs.find((run) => run.runId === runId);

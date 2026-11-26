@@ -7,6 +7,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/amaldevice/sasmita/internal/usage"
 )
 
 // Project is the workspace root that conversations belong to.
@@ -71,6 +73,11 @@ type Message struct {
 	Role           MessageRole
 	Content        []ContentPart
 	CreatedAt      time.Time
+	// RunID links an assistant message to the run that produced it. It is a
+	// read-model aid, not part of canonical message content.
+	RunID string
+	// Usage is populated on read for answers whose run recorded usage.
+	Usage *usage.AnswerUsage
 }
 
 // Text returns the concatenation of all text parts.
