@@ -80,3 +80,11 @@ type ModelProvider interface {
 	Name() string
 	Stream(ctx context.Context, req StreamRequest, emit func(StreamEvent)) error
 }
+
+// ProviderKindAware lets the application service detect which wire format a
+// configured adapter speaks. It is optional so test doubles and future
+// providers are not forced to declare one; an undeclared kind keeps every
+// stored content block (the pre-switch behaviour).
+type ProviderKindAware interface {
+	ProviderKind() string
+}

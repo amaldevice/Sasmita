@@ -40,10 +40,11 @@ type Config struct {
 }
 
 type Service struct {
-	store   *repositories.Store
-	cfg     Config
-	builder ctxlayout.Builder
-	runtime *runtime.Manager
+	store        *repositories.Store
+	cfg          Config
+	builder      ctxlayout.Builder
+	runtime      *runtime.Manager
+	providerKind domain.ProviderKind
 }
 
 func New(store *repositories.Store, cfg Config) *Service {
@@ -67,11 +68,17 @@ func New(store *repositories.Store, cfg Config) *Service {
 	if cfg.Runtime == nil {
 		cfg.Runtime = runtime.NewManager()
 	}
+	// Undeclared providers keep every raw block (the pre-switch behaviour).
+	var kind domain.ProviderKind
+	if aware, ok := cfg.Provider.(model.ProviderKindAware); ok {
+		kind = domain.ProviderKind(aware.ProviderKind())
+	}
 	return &Service{
-		store:   store,
-		cfg:     cfg,
-		builder: ctxlayout.Builder{Tools: cfg.Tools},
-		runtime: cfg.Runtime,
+		store:        store,
+		cfg:          cfg,
+		builder:      ctxlayout.Builder{Tools: cfg.Tools},
+		runtime:      cfg.Runtime,
+		providerKind: kind,
 	}
 }
 

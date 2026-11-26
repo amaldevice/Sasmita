@@ -61,6 +61,11 @@ const strings = {
     estimate: 'perkiraan',
     enabled: 'Aktif',
     disabled: 'Nonaktif',
+    mode: 'Mode',
+    comingLater: 'Segera hadir',
+    rereadWarning: 'Dibaca ulang penuh',
+    tokens: 'token',
+    continue: 'Lanjutkan',
   },
   en: {
     newChat: 'New chat',
@@ -120,6 +125,11 @@ const strings = {
     estimate: 'estimate',
     enabled: 'On',
     disabled: 'Off',
+    mode: 'Mode',
+    comingLater: 'Coming later',
+    rereadWarning: 'Re-read at full price',
+    tokens: 'tokens',
+    continue: 'Continue',
   },
 } as const;
 

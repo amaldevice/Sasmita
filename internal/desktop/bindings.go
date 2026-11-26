@@ -160,6 +160,8 @@ type Bindings interface {
 	ListExamplePrompts(ctx context.Context) []ExamplePromptDTO
 	DetectLocalEndpoints(ctx context.Context) ([]LocalEndpointDTO, error)
 	GetUsageReport(ctx context.Context) (UsageReportDTO, error)
+	ListModes(ctx context.Context) []ModeDTO
+	EstimateSwitch(ctx context.Context, req SwitchEstimateRequestDTO) (SwitchEstimateDTO, error)
 }
 
 // Service adapts the application service to the typed bindings. It is shared
