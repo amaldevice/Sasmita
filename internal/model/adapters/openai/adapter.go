@@ -28,8 +28,8 @@ type streamOptions struct {
 }
 
 type wireMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string          `json:"role"`
+	Content json.RawMessage `json:"content"`
 }
 
 // requestBody field order is deliberate: messages is the final key so the
@@ -52,9 +52,29 @@ func EncodeRequest(req model.StreamRequest) ([]byte, error) {
 		Messages:       make([]wireMessage, 0, len(req.Messages)),
 	}
 	for _, m := range req.Messages {
-		body.Messages = append(body.Messages, wireMessage{Role: m.Role, Content: m.Content})
+		content, err := wireContent(m)
+		if err != nil {
+			return nil, err
+		}
+		body.Messages = append(body.Messages, wireMessage{Role: m.Role, Content: content})
 	}
-	return json.Marshal(body)
+	return model.MarshalDeterministic(body)
+}
+
+// wireContent keeps plain text as a JSON string and replays stored provider
+// blocks verbatim as a JSON array (deterministic key order, unchanged bytes).
+func wireContent(m model.Message) (json.RawMessage, error) {
+	if len(m.Blocks) == 0 {
+		return model.MarshalDeterministic(m.Content)
+	}
+	return model.MarshalDeterministic(m.Blocks)
+}
+
+// CanonicalRequest is the append-only prefix view of the request. OpenAI-compatible
+// providers cache automatically and have no explicit breakpoints, so the wire
+// bytes and canonical bytes are identical.
+func CanonicalRequest(req model.StreamRequest) ([]byte, error) {
+	return EncodeRequest(req)
 }
 
 // StableRequestPrefix is the request body without its trailing `]}` envelope.
@@ -90,8 +110,14 @@ type wireChunk struct {
 		PromptTokensDetails struct {
 			CachedTokens int64 `json:"cached_tokens"`
 		} `json:"prompt_tokens_details"`
-		CacheWriteTokens int64 `json:"cache_write_tokens"`
+		CacheWriteTokens      int64 `json:"cache_write_tokens"`
+		PromptCacheHitTokens  int64 `json:"prompt_cache_hit_tokens"`
+		PromptCacheMissTokens int64 `json:"prompt_cache_miss_tokens"`
 	} `json:"usage"`
+	// llama.cpp reports its prompt cache in timings, outside usage.
+	Timings struct {
+		CacheN int64 `json:"cache_n"`
+	} `json:"timings"`
 }
 
 // Stream performs one SSE request and normalizes text deltas and usage.
@@ -145,14 +171,26 @@ func (a Adapter) Stream(ctx context.Context, req model.StreamRequest, emit func(
 			}
 		}
 		if chunk.Usage != nil {
-			emit(model.StreamEvent{Kind: model.EventUsage, Usage: &model.Usage{
-				ProviderID:       a.Name(),
-				ModelID:          req.Model,
-				InputTokens:      chunk.Usage.PromptTokens,
-				OutputTokens:     chunk.Usage.CompletionTokens,
-				CacheReadTokens:  chunk.Usage.PromptTokensDetails.CachedTokens,
-				CacheWriteTokens: chunk.Usage.CacheWriteTokens,
-			}})
+			u := model.Usage{
+				ProviderID:   a.Name(),
+				ModelID:      req.Model,
+				InputTokens:  chunk.Usage.PromptTokens,
+				OutputTokens: chunk.Usage.CompletionTokens,
+			}
+			switch {
+			case chunk.Usage.PromptCacheHitTokens > 0 || chunk.Usage.PromptCacheMissTokens > 0:
+				// DeepSeek reports hits and misses separately.
+				u.CacheReadTokens = chunk.Usage.PromptCacheHitTokens
+				u.UncachedTokens = chunk.Usage.PromptCacheMissTokens
+			default:
+				u.CacheReadTokens = chunk.Usage.PromptTokensDetails.CachedTokens
+			}
+			u.CacheWriteTokens = chunk.Usage.CacheWriteTokens
+			if chunk.Timings.CacheN > 0 && u.CacheReadTokens == 0 {
+				u.CacheReadTokens = chunk.Timings.CacheN
+			}
+			normalized := model.FinalizeUsage(u)
+			emit(model.StreamEvent{Kind: model.EventUsage, Usage: &normalized})
 		}
 	}
 	return scanner.Err()

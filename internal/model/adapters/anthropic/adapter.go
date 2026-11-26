@@ -14,6 +14,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -128,14 +129,14 @@ type cacheControl struct {
 }
 
 type systemBlock struct {
-	Type         string       `json:"type"`
-	Text         string       `json:"text"`
-	CacheControl cacheControl `json:"cache_control"`
+	Type         string        `json:"type"`
+	Text         string        `json:"text"`
+	CacheControl *cacheControl `json:"cache_control,omitempty"`
 }
 
 type wireMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string            `json:"role"`
+	Content []json.RawMessage `json:"content"`
 }
 
 type wireTool struct {
@@ -150,19 +151,21 @@ type requestBody struct {
 	Model     string        `json:"model"`
 	MaxTokens int           `json:"max_tokens"`
 	Stream    bool          `json:"stream"`
+	SessionID string        `json:"session_id,omitempty"`
 	Tools     []wireTool    `json:"tools,omitempty"`
 	System    []systemBlock `json:"system,omitempty"`
 	Messages  []wireMessage `json:"messages"`
 }
 
-// EncodeRequest returns the exact bytes sent to the provider. A leading
-// "system" message becomes the static system block with a 1h cache breakpoint;
-// all remaining roles are passed through unchanged in append-only order.
-func EncodeRequest(req model.StreamRequest) ([]byte, error) {
+// encode builds either the wire request (with cache breakpoints) or the
+// canonical byte-stable view (without them). Breakpoints are wire decorations,
+// never stored in canonical history — see docs/benchmarks/s2-adapters-cache.md.
+func encode(req model.StreamRequest, breakpoints bool) ([]byte, error) {
 	body := requestBody{
 		Model:     req.Model,
 		MaxTokens: defaultMaxTokens,
 		Stream:    true,
+		SessionID: req.PromptCacheKey,
 		Messages:  make([]wireMessage, 0, len(req.Messages)),
 	}
 	for _, tool := range req.Tools {
@@ -176,16 +179,78 @@ func EncodeRequest(req model.StreamRequest) ([]byte, error) {
 	}
 	for _, m := range req.Messages {
 		if m.Role == "system" {
-			body.System = append(body.System, systemBlock{
-				Type: "text", Text: m.Content,
-				CacheControl: cacheControl{Type: "ephemeral", TTL: "1h"},
-			})
+			block := systemBlock{Type: "text", Text: m.Content}
+			if breakpoints {
+				block.CacheControl = &cacheControl{Type: "ephemeral", TTL: "1h"}
+			}
+			body.System = append(body.System, block)
 			continue
 		}
-		body.Messages = append(body.Messages, wireMessage{Role: m.Role, Content: m.Content})
+		wm := wireMessage{Role: m.Role, Content: make([]json.RawMessage, 0, max(1, len(m.Blocks)))}
+		if len(m.Blocks) == 0 {
+			text, err := model.MarshalDeterministic(struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			}{Type: "text", Text: m.Content})
+			if err != nil {
+				return nil, err
+			}
+			wm.Content = append(wm.Content, text)
+		} else {
+			for _, raw := range m.Blocks {
+				wm.Content = append(wm.Content, append(json.RawMessage(nil), raw...))
+			}
+		}
+		body.Messages = append(body.Messages, wm)
 	}
-	return json.Marshal(body)
+	if breakpoints {
+		type location struct{ message, block int }
+		var locations []location
+		for mi := range body.Messages {
+			for bi := range body.Messages[mi].Content {
+				locations = append(locations, location{mi, bi})
+			}
+		}
+		apply := func(loc location, ttl string) {
+			block := body.Messages[loc.message].Content[loc.block]
+			body.Messages[loc.message].Content[loc.block] = withCacheControl(block, ttl)
+		}
+		if len(locations) > 0 {
+			apply(locations[len(locations)-1], "5m")
+			// Anthropic looks back only 20 blocks; a turn that adds more needs
+			// an extra breakpoint near the end of the stable prefix.
+			if len(locations) > 20 {
+				apply(locations[len(locations)-20], "5m")
+			}
+		}
+	}
+	return model.MarshalDeterministic(body)
 }
+
+// withCacheControl appends a marker to a raw block without re-serializing any
+// of the provider's original bytes or changing its key order.
+func withCacheControl(block json.RawMessage, ttl string) json.RawMessage {
+	b := bytes.TrimSpace(block)
+	if len(b) < 2 || b[0] != '{' || b[len(b)-1] != '}' {
+		return block
+	}
+	out := make([]byte, 0, len(b)+72)
+	out = append(out, b[:len(b)-1]...)
+	out = append(out, `,"cache_control":{"type":"ephemeral","ttl":"`...)
+	out = append(out, ttl...)
+	out = append(out, `"}`...)
+	out = append(out, '}')
+	return out
+}
+
+// EncodeRequest returns the exact bytes sent to the provider, including cache
+// breakpoints: 1h at the end of the static system block, 5m on the last block,
+// and a third only when one turn adds more than 20 blocks.
+func EncodeRequest(req model.StreamRequest) ([]byte, error) { return encode(req, true) }
+
+// CanonicalRequest returns the breakpoint-free, byte-stable view of the same
+// request. Appending a turn extends these bytes without rewriting earlier ones.
+func CanonicalRequest(req model.StreamRequest) ([]byte, error) { return encode(req, false) }
 
 func (a Adapter) Name() string {
 	if a.ProviderID != "" {
@@ -203,6 +268,9 @@ type streamEvent struct {
 			CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
 			CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
 		} `json:"usage"`
+		// Content may carry the finished blocks verbatim; when present it is
+		// stored byte-for-byte instead of being rebuilt from deltas.
+		Content json.RawMessage `json:"content"`
 	} `json:"message"`
 	ContentBlock *struct {
 		Type string `json:"type"`
@@ -212,6 +280,8 @@ type streamEvent struct {
 	Delta *struct {
 		Type        string `json:"type"`
 		Text        string `json:"text"`
+		Thinking    string `json:"thinking"`
+		Signature   string `json:"signature"`
 		PartialJSON string `json:"partial_json"`
 	} `json:"delta"`
 	Index int `json:"index"`
@@ -255,11 +325,17 @@ func (a Adapter) Stream(ctx context.Context, req model.StreamRequest, emit func(
 	usageSeen, usageEmitted := false, false
 	emitUsage := func() {
 		if usageSeen && !usageEmitted {
+			usage = model.FinalizeUsage(usage)
 			emit(model.StreamEvent{Kind: model.EventUsage, Usage: &usage})
 			usageEmitted = true
 		}
 	}
 	pendingTools := map[int]*model.ToolCall{}
+	type blockState struct {
+		typ, text, thinking, signature, id, name, input string
+	}
+	blockStates := map[int]*blockState{}
+	var rawBlocks []json.RawMessage
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 64*1024), 2*1024*1024)
@@ -278,36 +354,64 @@ func (a Adapter) Stream(ctx context.Context, req model.StreamRequest, emit func(
 		}
 		switch ev.Type {
 		case "message_start":
-			if ev.Message != nil && ev.Message.Usage != nil {
-				u := ev.Message.Usage
-				usage = model.Usage{
-					ProviderID:       a.Name(),
-					ModelID:          req.Model,
-					InputTokens:      u.InputTokens,
-					CacheReadTokens:  u.CacheReadInputTokens,
-					CacheWriteTokens: u.CacheCreationInputTokens,
+			if ev.Message != nil {
+				if ev.Message.Usage != nil {
+					u := ev.Message.Usage
+					usage = model.Usage{
+						ProviderID:       a.Name(),
+						ModelID:          req.Model,
+						InputTokens:      u.InputTokens,
+						CacheReadTokens:  u.CacheReadInputTokens,
+						CacheWriteTokens: u.CacheCreationInputTokens,
+						// Anthropic's input_tokens already excludes cached tokens.
+						UncachedTokens: u.InputTokens,
+					}
+					usageSeen = true
 				}
-				usageSeen = true
+				if len(ev.Message.Content) > 0 {
+					var blocks []json.RawMessage
+					if json.Unmarshal(ev.Message.Content, &blocks) == nil {
+						rawBlocks = blocks
+					}
+				}
 			}
 		case "content_block_start":
-			if ev.ContentBlock != nil && ev.ContentBlock.Type == "tool_use" {
-				pendingTools[ev.Index] = &model.ToolCall{
-					ID: ev.ContentBlock.ID, Name: ev.ContentBlock.Name,
-					Input: json.RawMessage(`{}`),
+			if ev.ContentBlock != nil {
+				blockStates[ev.Index] = &blockState{typ: ev.ContentBlock.Type}
+				if ev.ContentBlock.Type == "tool_use" {
+					state := blockStates[ev.Index]
+					state.id, state.name, state.input = ev.ContentBlock.ID, ev.ContentBlock.Name, "{}"
+					pendingTools[ev.Index] = &model.ToolCall{
+						ID: ev.ContentBlock.ID, Name: ev.ContentBlock.Name,
+						Input: json.RawMessage(`{}`),
+					}
 				}
 			}
 		case "content_block_delta":
 			if ev.Delta == nil {
 				continue
 			}
+			state := blockStates[ev.Index]
+			if state == nil {
+				state = &blockState{}
+				blockStates[ev.Index] = state
+			}
 			switch ev.Delta.Type {
 			case "text_delta":
+				state.text += ev.Delta.Text
 				if ev.Delta.Text != "" {
 					emit(model.StreamEvent{Kind: model.EventTextDelta, Text: ev.Delta.Text})
 				}
+			case "thinking_delta":
+				state.thinking += ev.Delta.Thinking
+			case "signature_delta":
+				state.signature += ev.Delta.Signature
 			case "input_json_delta":
-				if tc := pendingTools[ev.Index]; tc != nil && ev.Delta.PartialJSON != "" {
-					tc.Input = append(tc.Input, ev.Delta.PartialJSON...)
+				if ev.Delta.PartialJSON != "" {
+					state.input += ev.Delta.PartialJSON
+					if tc := pendingTools[ev.Index]; tc != nil {
+						tc.Input = append(tc.Input, ev.Delta.PartialJSON...)
+					}
 				}
 			}
 		case "content_block_stop":
@@ -330,6 +434,50 @@ func (a Adapter) Stream(ctx context.Context, req model.StreamRequest, emit func(
 			return errors.New("provider stream error")
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	// Rebuild streamed blocks only when the provider did not supply the raw
+	// array. Key order is fixed so tool_use serialization stays deterministic.
+	if len(rawBlocks) == 0 && len(blockStates) > 0 {
+		indices := make([]int, 0, len(blockStates))
+		for index := range blockStates {
+			indices = append(indices, index)
+		}
+		sort.Ints(indices)
+		for _, index := range indices {
+			state := blockStates[index]
+			var block []byte
+			switch state.typ {
+			case "thinking":
+				block, _ = model.MarshalDeterministic(struct {
+					Type      string `json:"type"`
+					Thinking  string `json:"thinking"`
+					Signature string `json:"signature"`
+				}{Type: "thinking", Thinking: state.thinking, Signature: state.signature})
+			case "tool_use":
+				input := json.RawMessage(state.input)
+				if len(input) == 0 {
+					input = json.RawMessage(`{}`)
+				}
+				block, _ = model.MarshalDeterministic(struct {
+					Type  string          `json:"type"`
+					ID    string          `json:"id"`
+					Name  string          `json:"name"`
+					Input json.RawMessage `json:"input"`
+				}{Type: "tool_use", ID: state.id, Name: state.name, Input: input})
+			default:
+				block, _ = model.MarshalDeterministic(struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				}{Type: "text", Text: state.text})
+			}
+			rawBlocks = append(rawBlocks, block)
+		}
+	}
+	if len(rawBlocks) > 0 {
+		emit(model.StreamEvent{Kind: model.EventContentBlocks, ContentBlocks: rawBlocks})
+	}
 	emitUsage()
-	return scanner.Err()
+	return nil
 }
