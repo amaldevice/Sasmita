@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>PROTOTYPE: Alur rendering UI block dan sandboxed artifact</title>
+<style>
+  :root { --accent:#4f46e5; --muted:#6b7280; --line:#e5e7eb; --bg:#fafafa; }
+  * { box-sizing:border-box; }
+  body { font:14px/1.5 -apple-system, system-ui, sans-serif; margin:0; background:var(--bg); color:#111827; }
+  header { padding:20px 28px; border-bottom:1px solid var(--line); background:#fff; }
+  header h1 { margin:0 0 6px; font-size:18px; }
+  header p { margin:4px 0; color:var(--muted); max-width:1000px; }
+  .tag { display:inline-block; background:#fef3c7; color:#92400e; font-size:11px; padding:1px 6px; border-radius:4px; margin-right:6px; }
+  main { display:grid; grid-template-columns: 1.15fr 1fr; gap:20px; padding:20px 28px; }
+  section { background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px; }
+  h2 { font-size:14px; margin:0 0 10px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+  button { font:inherit; font-size:13px; border:1px solid var(--line); background:#fff; border-radius:6px; padding:4px 10px; cursor:pointer; margin:2px 4px 2px 0; }
+  button:hover { border-color:var(--accent); color:var(--accent); }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .block { border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin:10px 0; }
+  .block.offscreen { opacity:.45; border-style:dashed; }
+  .block .title { font-weight:600; }
+  .pill { display:inline-block; font-size:12px; padding:1px 8px; border-radius:999px; background:#eef2ff; color:var(--accent); margin-left:6px; }
+  .pill.warn { background:#fee2e2; color:#b91c1c; }
+  .pill.ok { background:#dcfce7; color:#166534; }
+  .pill.grey { background:#f3f4f6; color:#374151; }
+  .surface { margin:8px 0; padding:10px; border-radius:6px; background:#f9fafb; color:var(--muted); font-size:13px; }
+  .surface.live { background:#eef2ff; color:#1e1b4b; }
+  .row { display:flex; flex-wrap:wrap; gap:4px; align-items:center; }
+  .kv { display:grid; grid-template-columns: 220px 1fr; gap:4px 12px; font-size:13px; }
+  .kv div:nth-child(odd) { color:var(--muted); }
+  .changed { background:#fef9c3; }
+  .log { font-size:12px; color:#374151; max-height:220px; overflow:auto; border-top:1px solid var(--line); margin-top:10px; padding-top:8px; }
+  .log div { padding:2px 0; border-bottom:1px dotted var(--line); }
+  .tabs button.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { margin:4px 0; }
+  .step.done button { opacity:.4; }
+  .step.next button { border-color:var(--accent); color:var(--accent); font-weight:600; }
+  label { margin-right:14px; font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="tag">PROTOTYPE, buang setelah dipakai</span>Alur rendering UI block (Tier 1) dan sandboxed artifact (Tier 2)</h1>
+  <p><b>Pertanyaan:</b> bagaimana kedua tier muncul dan berperilaku di chat agar tetap ringan? Khususnya: kapan iframe artifact dinyalakan, apa yang tampil saat artifact keluar layar atau slot penuh, bagaimana batas 2 iframe hidup dan 1 WebGL dibagi, dan apa yang terjadi saat artifact membekukan tampilan.</p>
+  <p>Kiri: chat tiruan. Setiap block punya tombol aksi. Kanan: aturan (bisa diubah), state lengkap, dan skenario terpandu. Tidak ada iframe sungguhan; "hidup" berarti Sasmita sedang menjalankan iframe untuk block itu.</p>
+</header>
+
+<main>
+  <section>
+    <h2>Chat</h2>
+    <div class="row">
+      <button onclick="act({type:'MODEL_START_BLOCK', tier:1, title:'Grafik penjualan (UI block)'})">Model mulai membuat UI block</button>
+      <button onclick="act({type:'MODEL_START_BLOCK', tier:2, title:'Simulasi rounding (artifact)'})">Model mulai membuat artifact</button>
+      <button onclick="act({type:'MODEL_START_BLOCK', tier:2, title:'Model molekul 3D (artifact)', webgl:true})">Model mulai membuat artifact 3D</button>
+      <button onclick="act({type:'RELOAD_CONVERSATION'})">Buka ulang conversation</button>
+    </div>
+    <div id="chat"></div>
+  </section>
+
+  <section>
+    <h2>Aturan</h2>
+    <div class="row" id="config"></div>
+    <h2 style="margin-top:16px">State sekarang</h2>
+    <div class="kv" id="summary"></div>
+    <div class="log" id="log"></div>
+
+    <h2 style="margin-top:16px">Skenario terpandu</h2>
+    <div class="tabs row" id="tabs"></div>
+    <div id="scenario"></div>
+  </section>
+</main>
+
+<script>
+// ===================== Modul logika (pure, bisa diangkat ke kode asli) =====================
+const RenderFlow = (() => {
+  const initial = (config = {}) => ({
+    config: { maxLive: 2, maxWebgl: 1, autoRunVisible: true, offscreenView: 'kartu', ...config },
+    blocks: [],
+    tick: 0,
+    log: [],
+  });
+
+  const T2_LIVE_STATES = ['hidup'];
+
+  // Bagi slot iframe ke artifact yang layak hidup. Prioritas: expanded > diminta user > terlihat paling baru.
+  function allocate(s) {
+    const { maxLive, maxWebgl, autoRunVisible } = s.config;
+    const eligible = s.blocks.filter(b => b.tier === 2 && b.phase === 'siap' && !b.frozen && !b.inWindow && b.visible
+      && (autoRunVisible || b.userRunAt));
+    eligible.sort((a, b) => (b.expanded - a.expanded) || ((b.userRunAt || 0) - (a.userRunAt || 0)) || (b.visibleAt - a.visibleAt));
+    let live = 0, webgl = 0; const winners = new Set();
+    for (const b of eligible) {
+      if (live >= maxLive) break;
+      if (b.webgl && webgl >= maxWebgl) continue;
+      winners.add(b.id); live++; if (b.webgl) webgl++;
+    }
+    const blocks = s.blocks.map(b => {
+      if (b.tier !== 2 || b.phase !== 'siap') return b;
+      let view;
+      if (b.inWindow) view = 'di window terpisah';
+      else if (b.frozen) view = 'dinonaktifkan (membekukan tampilan)';
+      else if (winners.has(b.id)) view = 'hidup';
+      else if (!b.visible) view = 'diparkir (di luar layar)';
+      else if (!autoRunVisible && !b.userRunAt) view = 'menunggu klik Jalankan';
+      else view = 'menunggu slot';
+      return { ...b, view };
+    });
+    return { ...s, blocks };
+  }
+
+  const log = (s, msg) => ({ ...s, log: [...s.log, msg] });
+  const upd = (s, id, f) => ({ ...s, blocks: s.blocks.map(b => b.id === id ? { ...b, ...f(b) } : b) });
+
+  function reduce(s0, a) {
+    let s = { ...s0, tick: s0.tick + 1 };
+    const b = a.id && s.blocks.find(x => x.id === a.id);
+    switch (a.type) {
+      case 'SET_CONFIG':
+        s = log({ ...s, config: { ...s.config, ...a.patch } }, `Aturan diubah: ${JSON.stringify(a.patch)}`); break;
+      case 'MODEL_START_BLOCK': {
+        const id = `b${s.blocks.length + 1}`;
+        // Block baru muncul di bawah; block lain yang sudah lama dianggap ikut tergulir ke atas.
+        s = { ...s, blocks: [...s.blocks, { id, tier: a.tier, title: a.title, webgl: !!a.webgl, phase: 'streaming',
+              version: 0, visible: true, visibleAt: s.tick, expanded: false, frozen: false, inWindow: false, userRunAt: 0, view: null }] };
+        s = log(s, `${id}: model mulai streaming argumen. Tampil skeleton, belum dirender.`); break;
+      }
+      case 'MODEL_FINISH_BLOCK':
+        if (b.phase !== 'streaming') { s = log(s, `${b.id}: ditolak, block tidak sedang streaming.`); break; }
+        if (a.valid) {
+          s = upd(s, b.id, () => ({ phase: 'siap', version: 1 }));
+          s = log(s, b.tier === 1 ? `${b.id}: spec valid di Go, dirender komponen Svelte (tanpa iframe, tanpa slot).`
+                                  : `${b.id}: artifact v1 tersimpan, siap dijalankan.`);
+        } else {
+          s = upd(s, b.id, () => ({ phase: 'gagal' }));
+          s = log(s, `${b.id}: validasi gagal. Tampil teks fallback + alasan; error dikembalikan ke model.`);
+        }
+        break;
+      case 'SCROLL_AWAY':
+        s = upd(s, b.id, () => ({ visible: false, expanded: false }));
+        s = log(s, `${b.id}: keluar layar.` + (b.tier === 2 && b.view === 'hidup' ? ` Iframe dihancurkan, state terakhir disimpan (saveState).` : '')); break;
+      case 'SCROLL_INTO_VIEW':
+        s = upd(s, b.id, () => ({ visible: true, visibleAt: s.tick }));
+        s = log(s, `${b.id}: masuk layar.`); break;
+      case 'USER_RUN':
+        s = upd(s, b.id, () => ({ userRunAt: s.tick, frozen: false }));
+        s = log(s, `${b.id}: user klik Jalankan.` + (b.frozen ? ' Artifact yang dinonaktifkan dicoba lagi atas permintaan user.' : '')); break;
+      case 'EXPAND':
+        s = { ...s, blocks: s.blocks.map(x => ({ ...x, expanded: x.id === b.id })) };
+        s = log(s, `${b.id}: dibuka mode expanded. Dapat prioritas slot tertinggi.`); break;
+      case 'COLLAPSE':
+        s = upd(s, b.id, () => ({ expanded: false })); s = log(s, `${b.id}: kembali inline.`); break;
+      case 'WATCHDOG_FREEZE': {
+        if (b.view !== 'hidup') { s = log(s, `${b.id}: tidak hidup, tidak bisa membekukan tampilan.`); break; }
+        s = { ...s, blocks: s.blocks.map(x => x.id === b.id ? { ...x, frozen: true, userRunAt: 0, expanded: false } : x) };
+        s = log(s, `${b.id}: main thread tidak merespons ~3 detik. Watchdog Go me-reload page; semua iframe hidup ikut mati lalu dialokasi ulang. ${b.id} ditandai "membekukan tampilan" dan tidak auto-run lagi.`);
+        break;
+      }
+      case 'OPEN_WINDOW':
+        s = upd(s, b.id, () => ({ inWindow: true, expanded: false }));
+        s = log(s, `${b.id}: dibuka di window Untrusted terpisah (proses sendiri). Slot inline dilepas.`); break;
+      case 'CLOSE_WINDOW':
+        s = upd(s, b.id, () => ({ inWindow: false })); s = log(s, `${b.id}: window terpisah ditutup.`); break;
+      case 'MODEL_EDIT':
+        if (a.matches === 1) {
+          s = upd(s, b.id, x => ({ version: x.version + 1 }));
+          s = log(s, `${b.id}: edit_artifact berhasil, versi baru v${b.version + 1}. Iframe hidup di-reload dengan versi baru + loadState.`);
+        } else {
+          s = log(s, `${b.id}: edit_artifact ditolak (${a.matches} match). Versi tetap v${b.version}; error dikembalikan ke model.`);
+        }
+        break;
+      case 'RELOAD_CONVERSATION':
+        s = { ...s, blocks: s.blocks.map((x, i, arr) => ({ ...x, userRunAt: 0, expanded: false, inWindow: false,
+              phase: x.phase === 'streaming' ? 'terputus' : x.phase,
+              visible: i >= arr.length - 2, visibleAt: i })) };
+        s = log(s, 'Conversation dibuka ulang dari data tersimpan. Hanya 2 block terakhir terlihat. Block yang sedang streaming saat app ditutup ditandai "terputus".');
+        break;
+    }
+    return allocate(s);
+  }
+
+  return { initial, reduce };
+})();
+
+// ===================== Shell halaman (dibuang) =====================
+let state = RenderFlow.initial();
+let prevSummary = {};
+
+function act(a) { state = RenderFlow.reduce(state, a); render(); advanceIfScenarioStep(a); }
+
+function summary(s) {
+  const t2 = s.blocks.filter(b => b.tier === 2);
+  return {
+    'Iframe hidup': `${t2.filter(b => b.view === 'hidup').length} / ${s.config.maxLive}`,
+    'Artifact 3D hidup': `${t2.filter(b => b.view === 'hidup' && b.webgl).length} / ${s.config.maxWebgl}`,
+    'Menunggu slot / klik': t2.filter(b => /menunggu/.test(b.view || '')).map(b => b.id).join(', ') || '-',
+    'Diparkir di luar layar': t2.filter(b => /diparkir/.test(b.view || '')).map(b => b.id).join(', ') || '-',
+    'Dinonaktifkan watchdog': t2.filter(b => b.frozen).map(b => b.id).join(', ') || '-',
+    'Di window terpisah': t2.filter(b => b.inWindow).map(b => b.id).join(', ') || '-',
+    'UI block (Tier 1) dirender': s.blocks.filter(b => b.tier === 1 && b.phase === 'siap' && b.visible).map(b => b.id).join(', ') || '-',
+  };
+}
+
+function surfaceText(b, s) {
+  if (b.phase === 'streaming') return b.tier === 1 ? 'Skeleton: kerangka grafik abu-abu. Argumen masih masuk.' : 'Skeleton: "Membuat artifact..." + jumlah baris kode yang sudah masuk (kode bisa dilihat, belum dijalankan).';
+  if (b.phase === 'gagal') return 'Teks fallback: "Visual tidak bisa ditampilkan: <alasan>". Jawaban teks model tetap ada.';
+  if (b.phase === 'terputus') return 'Terputus saat streaming. Tombol "Minta model lanjutkan".';
+  if (b.tier === 1) return b.visible ? 'Komponen Svelte asli (grafik). Interaksi lokal tanpa model.' : 'Di-unmount oleh daftar pesan virtual. Murah dirender ulang.';
+  const off = s.config.offscreenView === 'kartu'
+    ? `Kartu: judul, v${b.version}, ringkasan teks, tombol Jalankan.`
+    : `Gambar snapshot terakhir v${b.version} + tombol Jalankan.`;
+  switch (b.view) {
+    case 'hidup': return `IFRAME HIDUP v${b.version}${b.webgl ? ' (WebGL)' : ''}${b.expanded ? ' - expanded' : ''}`;
+    case 'menunggu slot': return `${off} Label: "Slot penuh, artifact lain sedang berjalan".`;
+    case 'menunggu klik Jalankan': return off;
+    case 'diparkir (di luar layar)': return off;
+    case 'dinonaktifkan (membekukan tampilan)': return `Peringatan: "Artifact ini membekukan tampilan." Tombol: Coba lagi, Buka di window terpisah, Lihat kode.`;
+    case 'di window terpisah': return 'Kartu: "Sedang terbuka di window terpisah".';
+  }
+  return '';
+}
+
+function render() {
+  const s = state;
+  document.getElementById('config').innerHTML = `
+    <label>Maks iframe hidup <select onchange="act({type:'SET_CONFIG',patch:{maxLive:+this.value}})">${[1,2,3].map(n=>`<option ${n===s.config.maxLive?'selected':''}>${n}</option>`).join('')}</select></label>
+    <label><input type="checkbox" ${s.config.autoRunVisible?'checked':''} onchange="act({type:'SET_CONFIG',patch:{autoRunVisible:this.checked}})"> Jalankan otomatis saat terlihat</label>
+    <label>Tampilan saat tidak hidup <select onchange="act({type:'SET_CONFIG',patch:{offscreenView:this.value}})">${['kartu','snapshot gambar'].map(v=>`<option ${v===s.config.offscreenView?'selected':''}>${v}</option>`).join('')}</select></label>`;
+
+  document.getElementById('chat').innerHTML = s.blocks.map(b => {
+    const pillCls = b.view === 'hidup' ? 'ok' : (b.frozen || b.phase === 'gagal') ? 'warn' : 'grey';
+    const status = b.tier === 2 && b.phase === 'siap' ? b.view : b.phase;
+    const btn = (label, a) => `<button onclick='act(${JSON.stringify({ id: b.id, ...a })})'>${label}</button>`;
+    let actions = '';
+    if (b.phase === 'streaming') actions = btn('Model selesai (spec valid)', {type:'MODEL_FINISH_BLOCK', valid:true}) + btn('Model selesai (spec tidak valid)', {type:'MODEL_FINISH_BLOCK', valid:false});
+    else if (b.phase === 'siap') {
+      actions += b.visible ? btn('Gulir menjauh', {type:'SCROLL_AWAY'}) : btn('Gulir ke sini', {type:'SCROLL_INTO_VIEW'});
+      if (b.tier === 2) {
+        if (b.view !== 'hidup' && b.visible && !b.inWindow) actions += btn('Jalankan', {type:'USER_RUN'});
+        actions += b.expanded ? btn('Kecilkan', {type:'COLLAPSE'}) : btn('Expand', {type:'EXPAND'});
+        if (b.view === 'hidup') actions += btn('Simulasi: artifact hang', {type:'WATCHDOG_FREEZE'});
+        actions += b.inWindow ? btn('Tutup window', {type:'CLOSE_WINDOW'}) : btn('Buka di window terpisah', {type:'OPEN_WINDOW'});
+        actions += btn('Model edit (1 match)', {type:'MODEL_EDIT', matches:1}) + btn('Model edit (0 match)', {type:'MODEL_EDIT', matches:0});
+      }
+    }
+    return `<div class="block ${b.visible ? '' : 'offscreen'}">
+      <div><span class="title">${b.id} · ${b.title}</span><span class="pill grey">Tier ${b.tier}</span><span class="pill ${pillCls}">${status}</span></div>
+      <div class="surface ${b.view === 'hidup' ? 'live' : ''}">${surfaceText(b, s)}</div>
+      <div class="row">${actions}</div></div>`;
+  }).join('') || '<p style="color:var(--muted)">Belum ada block. Klik tombol di atas atau pilih skenario.</p>';
+
+  const sum = summary(s);
+  document.getElementById('summary').innerHTML = Object.entries(sum).map(([k, v]) =>
+    `<div>${k}</div><div class="${prevSummary[k] !== undefined && prevSummary[k] !== v ? 'changed' : ''}">${v}</div>`).join('');
+  prevSummary = sum;
+  document.getElementById('log').innerHTML = s.log.slice().reverse().map(l => `<div>${l}</div>`).join('');
+}
+
+// ===================== Skenario =====================
+const scenarios = [
+  { name: 'Jalur normal', desc: 'Model membuat satu UI block dan satu artifact. Perhatikan: keduanya tampil skeleton dulu, UI block tidak butuh slot, artifact baru hidup setelah tersimpan.',
+    steps: [
+      ['Model mulai membuat UI block', {type:'MODEL_START_BLOCK', tier:1, title:'Grafik penjualan (UI block)'}],
+      ['UI block selesai, valid', {type:'MODEL_FINISH_BLOCK', id:'b1', valid:true}],
+      ['Model mulai membuat artifact', {type:'MODEL_START_BLOCK', tier:2, title:'Simulasi rounding (artifact)'}],
+      ['Artifact selesai, valid', {type:'MODEL_FINISH_BLOCK', id:'b2', valid:true}],
+      ['Gulir artifact menjauh', {type:'SCROLL_AWAY', id:'b2'}],
+      ['Gulir kembali', {type:'SCROLL_INTO_VIEW', id:'b2'}],
+    ]},
+  { name: 'Slot penuh', desc: 'Tiga artifact terlihat sekaligus, padahal maks 2 hidup. Perhatikan siapa yang menunggu, dan apa yang terjadi saat user klik Jalankan di artifact yang menunggu.',
+    steps: [
+      ['Artifact A', {type:'MODEL_START_BLOCK', tier:2, title:'Artifact A'}], ['A selesai', {type:'MODEL_FINISH_BLOCK', id:'b1', valid:true}],
+      ['Artifact B', {type:'MODEL_START_BLOCK', tier:2, title:'Artifact B'}], ['B selesai', {type:'MODEL_FINISH_BLOCK', id:'b2', valid:true}],
+      ['Artifact C', {type:'MODEL_START_BLOCK', tier:2, title:'Artifact C'}], ['C selesai', {type:'MODEL_FINISH_BLOCK', id:'b3', valid:true}],
+      ['User klik Jalankan di A', {type:'USER_RUN', id:'b1'}],
+      ['User expand C', {type:'EXPAND', id:'b3'}],
+    ]},
+  { name: 'Dua artifact 3D', desc: 'Hanya 1 artifact WebGL boleh hidup. Artifact biasa tetap boleh mengisi slot kedua.',
+    steps: [
+      ['3D pertama', {type:'MODEL_START_BLOCK', tier:2, title:'Molekul 3D', webgl:true}], ['selesai', {type:'MODEL_FINISH_BLOCK', id:'b1', valid:true}],
+      ['3D kedua', {type:'MODEL_START_BLOCK', tier:2, title:'Terrain 3D', webgl:true}], ['selesai', {type:'MODEL_FINISH_BLOCK', id:'b2', valid:true}],
+      ['Artifact biasa', {type:'MODEL_START_BLOCK', tier:2, title:'Tabel interaktif'}], ['selesai', {type:'MODEL_FINISH_BLOCK', id:'b3', valid:true}],
+      ['Gulir 3D pertama menjauh', {type:'SCROLL_AWAY', id:'b1'}],
+    ]},
+  { name: 'Artifact membekukan tampilan', desc: 'Artifact berisi loop tak berujung. Watchdog me-reload page. Perhatikan artifact lain yang ikut mati lalu hidup lagi, dan artifact pelaku yang tidak auto-run.',
+    steps: [
+      ['Artifact A', {type:'MODEL_START_BLOCK', tier:2, title:'Artifact sehat'}], ['A selesai', {type:'MODEL_FINISH_BLOCK', id:'b1', valid:true}],
+      ['Artifact B', {type:'MODEL_START_BLOCK', tier:2, title:'Artifact dengan while(true)'}], ['B selesai', {type:'MODEL_FINISH_BLOCK', id:'b2', valid:true}],
+      ['B membekukan tampilan', {type:'WATCHDOG_FREEZE', id:'b2'}],
+      ['User buka B di window terpisah', {type:'OPEN_WINDOW', id:'b2'}],
+    ]},
+  { name: 'Edit dan spec rusak', desc: 'Edit yang tidak menemukan teks ditolak tanpa mengubah versi. UI block dengan spec tidak valid jatuh ke teks fallback.',
+    steps: [
+      ['Artifact', {type:'MODEL_START_BLOCK', tier:2, title:'Simulasi'}], ['selesai', {type:'MODEL_FINISH_BLOCK', id:'b1', valid:true}],
+      ['Edit gagal (0 match)', {type:'MODEL_EDIT', id:'b1', matches:0}],
+      ['Edit berhasil', {type:'MODEL_EDIT', id:'b1', matches:1}],
+      ['UI block', {type:'MODEL_START_BLOCK', tier:1, title:'Heatmap'}], ['spec tidak valid', {type:'MODEL_FINISH_BLOCK', id:'b2', valid:false}],
+    ]},
+  { name: 'Buka ulang conversation', desc: 'Empat artifact tersimpan, app ditutup di tengah streaming artifact kelima. Saat dibuka ulang, apa yang langsung jalan?',
+    steps: [
+      ...[1,2,3,4].flatMap(n => [[`Artifact ${n}`, {type:'MODEL_START_BLOCK', tier:2, title:`Artifact ${n}`}], [`${n} selesai`, {type:'MODEL_FINISH_BLOCK', id:`b${n}`, valid:true}]]),
+      ['Artifact 5 (app ditutup saat streaming)', {type:'MODEL_START_BLOCK', tier:2, title:'Artifact 5'}],
+      ['Buka ulang conversation', {type:'RELOAD_CONVERSATION'}],
+    ]},
+];
+let activeTab = 0, stepIdx = 0, inScenario = false;
+
+function startScenario(i) { activeTab = i; stepIdx = 0; inScenario = true; state = RenderFlow.initial({ ...state.config }); prevSummary = {}; render(); renderScenario(); }
+function runStep(i) { if (i !== stepIdx) return; act(scenarios[activeTab].steps[i][1]); }
+function advanceIfScenarioStep(a) {
+  if (!inScenario) return;
+  const step = scenarios[activeTab].steps[stepIdx];
+  if (step && JSON.stringify(step[1]) === JSON.stringify(a)) stepIdx++;
+  renderScenario();
+}
+function renderScenario() {
+  document.getElementById('tabs').innerHTML = scenarios.map((sc, i) => `<button class="${i === activeTab && inScenario ? 'active' : ''}" onclick="startScenario(${i})">${sc.name}</button>`).join('');
+  if (!inScenario) { document.getElementById('scenario').innerHTML = '<p style="color:var(--muted)">Pilih tab untuk mulai. Memulai skenario mereset chat.</p>'; return; }
+  const sc = scenarios[activeTab];
+  document.getElementById('scenario').innerHTML = `<p>${sc.desc}</p>` + sc.steps.map(([label], i) =>
+    `<div class="step ${i < stepIdx ? 'done' : i === stepIdx ? 'next' : ''}">${i + 1}. <button onclick="runStep(${i})">${label}</button></div>`).join('')
+    + (stepIdx >= sc.steps.length ? '<p><b>Selesai.</b> Lanjutkan dengan free-play di chat.</p>' : '');
+}
+render(); renderScenario();
+</script>
+</body>
+</html>
