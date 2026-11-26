@@ -144,14 +144,9 @@
 
 <style>
   .settings {
-    position: absolute;
-    inset: 8px;
-    z-index: 10;
-    overflow: auto;
-    padding: 20px 24px;
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    background: var(--bg);
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
   }
   header { display: flex; align-items: baseline; justify-content: space-between; }
   h2 { font-size: 20px; font-weight: 600; }

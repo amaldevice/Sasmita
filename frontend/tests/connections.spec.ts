@@ -8,6 +8,8 @@ import { expect, test } from '@playwright/test';
 test('profiles, unknown capabilities and plain-language connection results', async ({ page }) => {
   await page.goto('/?fake=1');
 
+  // #20 owns the shell: connections live inside its Settings view.
+  await page.getByTestId('nav-settings').click();
   await page.getByTestId('open-connections').click();
   await expect(page.getByTestId('connections-panel')).toBeVisible();
 

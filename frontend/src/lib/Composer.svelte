@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { i18n } from './i18n.svelte';
+
   let { value = $bindable(''), onsubmit }: { value: string; onsubmit: (text: string) => void } = $props();
 
   function submit(event: SubmitEvent) {
@@ -15,10 +17,10 @@
     data-testid="composer-input"
     bind:value
     rows="2"
-    placeholder="Tanya sesuatu…"
-    aria-label="Pesan"
+    placeholder={i18n.t('askAnything')}
+    aria-label={i18n.t('message')}
   ></textarea>
-  <button data-testid="send-button" type="submit">Kirim</button>
+  <button data-testid="send-button" type="submit">{i18n.t('send')}</button>
 </form>
 
 <style>

@@ -25,6 +25,24 @@ type ConversationPageDTO struct {
 	NextCursor string            `json:"nextCursor"`
 }
 
+// ProjectDTO exposes only the fields the shell needs. An empty RootURI means
+// the project has no folder (and neither do its conversations).
+type ProjectDTO struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	RootURI   string    `json:"rootUri"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// SearchResultDTO is one full-text search hit; Snippet is a plain-text excerpt.
+type SearchResultDTO struct {
+	ConversationID string `json:"conversationId"`
+	Title          string `json:"title"`
+	ProjectID      string `json:"projectId"`
+	Snippet        string `json:"snippet"`
+}
+
 type MessageDTO struct {
 	ID             string    `json:"id"`
 	ConversationID string    `json:"conversationId"`
@@ -66,7 +84,12 @@ type RunSnapshotDTO struct {
 type Bindings interface {
 	CreateConversation(ctx context.Context, projectID, title, harnessID string) (ConversationDTO, error)
 	ListConversations(ctx context.Context, projectID, cursor string, limit int) (ConversationPageDTO, error)
+	ListRecentConversations(ctx context.Context, cursor string, limit int) (ConversationPageDTO, error)
 	GetConversation(ctx context.Context, conversationID string) (ConversationDetailDTO, error)
+	RenameConversation(ctx context.Context, conversationID, title string) (ConversationDTO, error)
+	MoveConversation(ctx context.Context, conversationID, projectID string) (ConversationDTO, error)
+	SearchConversations(ctx context.Context, query string, limit int) ([]SearchResultDTO, error)
+	ListProjects(ctx context.Context) ([]ProjectDTO, error)
 	StartRun(ctx context.Context, req StartRunRequestDTO) (RunHandleDTO, error)
 	GetRunSnapshot(ctx context.Context, runID string) (RunSnapshotDTO, error)
 	AddProviderProfile(ctx context.Context, req AddProviderProfileRequestDTO) (ProviderProfileDTO, error)
@@ -116,6 +139,18 @@ func (s *Service) ListConversations(ctx context.Context, projectID, cursor strin
 	return ConversationPageDTO{Items: items, NextCursor: next}, nil
 }
 
+func (s *Service) ListRecentConversations(ctx context.Context, cursor string, limit int) (ConversationPageDTO, error) {
+	convs, next, err := s.svc.ListRecentConversations(ctx, cursor, limit)
+	if err != nil {
+		return ConversationPageDTO{}, err
+	}
+	items := make([]ConversationDTO, 0, len(convs))
+	for _, conv := range convs {
+		items = append(items, conversationDTO(conv))
+	}
+	return ConversationPageDTO{Items: items, NextCursor: next}, nil
+}
+
 func (s *Service) GetConversation(ctx context.Context, conversationID string) (ConversationDetailDTO, error) {
 	detail, err := s.svc.GetConversation(ctx, conversationID)
 	if err != nil {
@@ -129,6 +164,52 @@ func (s *Service) GetConversation(ctx context.Context, conversationID string) (C
 		})
 	}
 	return ConversationDetailDTO{Conversation: conversationDTO(detail.Conversation), Messages: messages}, nil
+}
+
+func (s *Service) RenameConversation(ctx context.Context, conversationID, title string) (ConversationDTO, error) {
+	conv, err := s.svc.RenameConversation(ctx, conversationID, title)
+	if err != nil {
+		return ConversationDTO{}, err
+	}
+	return conversationDTO(*conv), nil
+}
+
+func (s *Service) MoveConversation(ctx context.Context, conversationID, projectID string) (ConversationDTO, error) {
+	conv, err := s.svc.MoveConversation(ctx, conversationID, projectID)
+	if err != nil {
+		return ConversationDTO{}, err
+	}
+	return conversationDTO(*conv), nil
+}
+
+func (s *Service) SearchConversations(ctx context.Context, query string, limit int) ([]SearchResultDTO, error) {
+	hits, err := s.svc.SearchConversations(ctx, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SearchResultDTO, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, SearchResultDTO{
+			ConversationID: h.ConversationID, Title: h.Title,
+			ProjectID: h.ProjectID, Snippet: h.Snippet,
+		})
+	}
+	return out, nil
+}
+
+func (s *Service) ListProjects(ctx context.Context) ([]ProjectDTO, error) {
+	projects, err := s.svc.ListProjects(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ProjectDTO, 0, len(projects))
+	for _, p := range projects {
+		out = append(out, ProjectDTO{
+			ID: p.ID, Name: p.Name, RootURI: p.RootURI,
+			CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
+		})
+	}
+	return out, nil
 }
 
 func (s *Service) StartRun(ctx context.Context, req StartRunRequestDTO) (RunHandleDTO, error) {
