@@ -23,6 +23,21 @@ export interface ConversationPageDTO {
   nextCursor: string;
 }
 
+export interface ProjectDTO {
+  id: string;
+  name: string;
+  rootUri: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SearchResultDTO {
+  conversationId: string;
+  title: string;
+  projectId: string;
+  snippet: string;
+}
+
 export interface MessageDTO {
   id: string;
   conversationId: string;
@@ -64,6 +79,11 @@ export const shellService = {
   getConversation: bind<[string], ConversationDetailDTO>("shellService.GetConversation", (conversationID: string) => [conversationID]),
   getRunSnapshot: bind<[string], RunSnapshotDTO>("shellService.GetRunSnapshot", (runID: string) => [runID]),
   listConversations: bind<[string, string, number], ConversationPageDTO>("shellService.ListConversations", (projectID: string, cursor: string, limit: number) => [projectID, cursor, limit]),
+  listProjects: bind<[], ProjectDTO[]>("shellService.ListProjects", () => []),
+  listRecentConversations: bind<[string, number], ConversationPageDTO>("shellService.ListRecentConversations", (cursor: string, limit: number) => [cursor, limit]),
+  moveConversation: bind<[string, string], ConversationDTO>("shellService.MoveConversation", (conversationID: string, projectID: string) => [conversationID, projectID]),
+  renameConversation: bind<[string, string], ConversationDTO>("shellService.RenameConversation", (conversationID: string, title: string) => [conversationID, title]),
+  searchConversations: bind<[string, number], SearchResultDTO[]>("shellService.SearchConversations", (query: string, limit: number) => [query, limit]),
   /**
    * StartRun streams RunEvents through a typed MyGo channel. The method stays
    * pending until a terminal event, so the channel is never closed early.

@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"io/fs"
+	"strconv"
 )
 
 // Latest is the highest migration version known to this build.
-const Latest = 1
+const Latest = 3
 
 //go:embed *.sql
 var files embed.FS
@@ -26,8 +28,21 @@ func Migrate(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	for version := current + 1; version <= Latest; version++ {
-		name := fmt.Sprintf("%03d_init.sql", version)
+	// Apply every known file above the current version. Parallel ticket lanes
+	// may land their files in a different order than their numbers, so a gap
+	// (e.g. 003 present before 002) must not stall or mis-stamp migrations.
+	names, err := fs.Glob(files, "[0-9][0-9][0-9]_init.sql")
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		version, err := strconv.Atoi(name[:3])
+		if err != nil {
+			return fmt.Errorf("migration %s: %w", name, err)
+		}
+		if version <= current || version > Latest {
+			continue
+		}
 		script, err := files.ReadFile(name)
 		if err != nil {
 			return fmt.Errorf("read migration %s: %w", name, err)
