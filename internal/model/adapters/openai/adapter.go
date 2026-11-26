@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/amaldevice/sasmita/internal/model"
@@ -27,19 +28,65 @@ type streamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
 }
 
+// Field order is alphabetical so the frozen tool list is deterministic.
+type wireFunction struct {
+	Description string          `json:"description,omitempty"`
+	Name        string          `json:"name"`
+	Parameters  json.RawMessage `json:"parameters,omitempty"`
+}
+
+type wireTool struct {
+	Type     string      `json:"type"`
+	Function wireFunction `json:"function"`
+}
+
+type wireToolCallFunction struct {
+	Arguments string `json:"arguments"`
+	Name      string `json:"name"`
+}
+
+type wireToolCall struct {
+	ID       string               `json:"id"`
+	Type     string               `json:"type"`
+	Function wireToolCallFunction `json:"function"`
+}
+
+// wireMessage carries tool calls and tool results as first-class wire fields.
+// Content is always present: null for an assistant tool-call turn.
 type wireMessage struct {
-	Role    string          `json:"role"`
-	Content json.RawMessage `json:"content"`
+	Role       string          `json:"role"`
+	Content    json.RawMessage `json:"content"`
+	ToolCalls  []wireToolCall  `json:"tool_calls,omitempty"`
+	ToolCallID string          `json:"tool_call_id,omitempty"`
 }
 
 // requestBody field order is deliberate: messages is the final key so the
-// serialization is append-only across turns (ADR-0001 golden prefix).
+// serialization is append-only across turns (ADR-0001 golden prefix). Tools are
+// frozen per conversation and sit before messages.
 type requestBody struct {
 	Model          string        `json:"model"`
 	Stream         bool          `json:"stream"`
 	StreamOptions  streamOptions `json:"stream_options"`
 	PromptCacheKey string        `json:"prompt_cache_key,omitempty"`
+	Tools          []wireTool    `json:"tools,omitempty"`
 	Messages       []wireMessage `json:"messages"`
+}
+
+// canonicalRaw normalizes key order for generated JSON (tool schemas and tool
+// arguments). Stored provider blocks are replayed verbatim and never pass here.
+func canonicalRaw(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return json.RawMessage(`{}`)
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return append(json.RawMessage(nil), raw...)
+	}
+	out, err := model.MarshalDeterministic(value)
+	if err != nil {
+		return append(json.RawMessage(nil), raw...)
+	}
+	return out
 }
 
 // EncodeRequest returns the exact bytes sent to the provider.
@@ -51,23 +98,95 @@ func EncodeRequest(req model.StreamRequest) ([]byte, error) {
 		PromptCacheKey: req.PromptCacheKey,
 		Messages:       make([]wireMessage, 0, len(req.Messages)),
 	}
+	for _, tool := range req.Tools {
+		body.Tools = append(body.Tools, wireTool{
+			Type: "function",
+			Function: wireFunction{
+				Description: tool.Description,
+				Name:        tool.Name,
+				Parameters:  canonicalRaw(tool.InputSchema),
+			},
+		})
+	}
 	for _, m := range req.Messages {
-		content, err := wireContent(m)
+		wm, err := wireMessageOf(m)
 		if err != nil {
 			return nil, err
 		}
-		body.Messages = append(body.Messages, wireMessage{Role: m.Role, Content: content})
+		body.Messages = append(body.Messages, wm)
 	}
 	return model.MarshalDeterministic(body)
 }
 
-// wireContent keeps plain text as a JSON string and replays stored provider
-// blocks verbatim as a JSON array (deterministic key order, unchanged bytes).
-func wireContent(m model.Message) (json.RawMessage, error) {
+// wireMessageOf keeps plain text as a JSON string and replays stored provider
+// blocks verbatim. Neutral tool_use / tool_result blocks are mapped to the
+// OpenAI wire fields so a tool-enabled conversation can continue across turns.
+func wireMessageOf(m model.Message) (wireMessage, error) {
+	wm := wireMessage{Role: m.Role}
 	if len(m.Blocks) == 0 {
-		return model.MarshalDeterministic(m.Content)
+		content, err := model.MarshalDeterministic(m.Content)
+		wm.Content = content
+		return wm, err
 	}
-	return model.MarshalDeterministic(m.Blocks)
+	var normal []json.RawMessage
+	var calls []wireToolCall
+	for _, raw := range m.Blocks {
+		var probe struct {
+			Type      string          `json:"type"`
+			ID        string          `json:"id"`
+			ToolUseID string          `json:"tool_use_id"`
+			Name      string          `json:"name"`
+			Input     json.RawMessage `json:"input"`
+			Content   json.RawMessage `json:"content"`
+		}
+		if err := json.Unmarshal(raw, &probe); err != nil {
+			continue
+		}
+		switch probe.Type {
+		case "tool_use":
+			calls = append(calls, wireToolCall{
+				ID: probe.ID, Type: "function",
+				Function: wireToolCallFunction{
+					Arguments: string(canonicalRaw(probe.Input)),
+					Name:      probe.Name,
+				},
+			})
+		case "tool_result":
+			wm.Role = "tool"
+			wm.ToolCallID = probe.ToolUseID
+			var text string
+			if len(probe.Content) > 0 && json.Unmarshal(probe.Content, &text) != nil {
+				text = string(probe.Content)
+			}
+			encoded, err := model.MarshalDeterministic(text)
+			if err != nil {
+				return wireMessage{}, err
+			}
+			wm.Content = encoded
+		default:
+			normal = append(normal, append(json.RawMessage(nil), raw...))
+		}
+	}
+	switch {
+	case len(calls) > 0:
+		wm.Content = json.RawMessage(`null`)
+		wm.ToolCalls = calls
+	case len(normal) > 0:
+		encoded, err := model.MarshalDeterministic(normal)
+		if err != nil {
+			return wireMessage{}, err
+		}
+		wm.Content = encoded
+	case len(wm.Content) == 0:
+		// A tool_result already supplied the content; plain messages fall back
+		// to their text field.
+		encoded, err := model.MarshalDeterministic(m.Content)
+		if err != nil {
+			return wireMessage{}, err
+		}
+		wm.Content = encoded
+	}
+	return wm, nil
 }
 
 // CanonicalRequest is the append-only prefix view of the request. OpenAI-compatible
@@ -105,8 +224,18 @@ func (a Adapter) ProviderKind() string { return model.ProviderOpenAICompatible }
 type wireChunk struct {
 	Choices []struct {
 		Delta struct {
-			Content string `json:"content"`
+			Content   string `json:"content"`
+			ToolCalls []struct {
+				Index    int    `json:"index"`
+				ID       string `json:"id"`
+				Type     string `json:"type"`
+				Function struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function"`
+			} `json:"tool_calls"`
 		} `json:"delta"`
+		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage *struct {
 		PromptTokens        int64 `json:"prompt_tokens"`
@@ -124,8 +253,12 @@ type wireChunk struct {
 	} `json:"timings"`
 }
 
-// Stream performs one SSE request and normalizes text deltas and usage.
-// Cancellation flows from ctx into the HTTP request.
+type toolAccumulator struct {
+	id, name, arguments string
+}
+
+// Stream performs one SSE request and normalizes text deltas, tool calls and
+// usage. Cancellation flows from ctx into the HTTP request.
 func (a Adapter) Stream(ctx context.Context, req model.StreamRequest, emit func(model.StreamEvent)) error {
 	body, err := EncodeRequest(req)
 	if err != nil {
@@ -154,6 +287,8 @@ func (a Adapter) Stream(ctx context.Context, req model.StreamRequest, emit func(
 		return fmt.Errorf("provider returned %s: %s", resp.Status, strings.TrimSpace(string(msg)))
 	}
 
+	pendingTools := map[int]*toolAccumulator{}
+	var order []int
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 64*1024), 2*1024*1024)
 	for scanner.Scan() {
@@ -172,6 +307,21 @@ func (a Adapter) Stream(ctx context.Context, req model.StreamRequest, emit func(
 		for _, choice := range chunk.Choices {
 			if choice.Delta.Content != "" {
 				emit(model.StreamEvent{Kind: model.EventTextDelta, Text: choice.Delta.Content})
+			}
+			for _, call := range choice.Delta.ToolCalls {
+				acc := pendingTools[call.Index]
+				if acc == nil {
+					acc = &toolAccumulator{}
+					pendingTools[call.Index] = acc
+					order = append(order, call.Index)
+				}
+				if call.ID != "" {
+					acc.id = call.ID
+				}
+				if call.Function.Name != "" {
+					acc.name = call.Function.Name
+				}
+				acc.arguments += call.Function.Arguments
 			}
 		}
 		if chunk.Usage != nil {
@@ -197,5 +347,34 @@ func (a Adapter) Stream(ctx context.Context, req model.StreamRequest, emit func(
 			emit(model.StreamEvent{Kind: model.EventUsage, Usage: &normalized})
 		}
 	}
-	return scanner.Err()
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	// Tool-call arguments arrive as string fragments. Accumulate them into one
+	// call per index, in index order, and emit the canonical neutral block that
+	// the agent appends to history (ADR-0001, append-only across turns).
+	if len(order) > 0 {
+		sort.Ints(order)
+		blocks := make([]json.RawMessage, 0, len(order))
+		for _, index := range order {
+			acc := pendingTools[index]
+			arguments := canonicalRaw(json.RawMessage(acc.arguments))
+			emit(model.StreamEvent{Kind: model.EventToolUse, ToolCall: &model.ToolCall{
+				ID: acc.id, Name: acc.name, Input: arguments,
+			}})
+			block, err := model.MarshalDeterministic(struct {
+				Type  string          `json:"type"`
+				ID    string          `json:"id"`
+				Name  string          `json:"name"`
+				Input json.RawMessage `json:"input"`
+			}{Type: "tool_use", ID: acc.id, Name: acc.name, Input: arguments})
+			if err != nil {
+				return err
+			}
+			blocks = append(blocks, block)
+		}
+		emit(model.StreamEvent{Kind: model.EventContentBlocks, ContentBlocks: blocks})
+	}
+	return nil
 }

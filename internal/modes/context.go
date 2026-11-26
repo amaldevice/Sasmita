@@ -40,8 +40,10 @@ func ActiveHistory(history []domain.Message, mode Mode, targetProvider domain.Pr
 }
 
 // isForeignBlock detects blocks the target provider cannot replay. Anthropic
-// thinking/signature/tool_use blocks are not valid on an OpenAI-compatible
-// wire request; they are never rewritten into text (which would leak reasoning).
+// thinking/signature blocks are not valid on an OpenAI-compatible wire request;
+// they are never rewritten into text (which would leak reasoning). Neutral
+// tool_use/tool_result blocks are replayable by both adapters and stay in the
+// derived active context.
 func isForeignBlock(raw json.RawMessage, target domain.ProviderKind) bool {
 	if target == "" {
 		return false
@@ -55,7 +57,7 @@ func isForeignBlock(raw json.RawMessage, target domain.ProviderKind) bool {
 	}
 	if target == domain.ProviderOpenAICompatible {
 		switch probe.Type {
-		case "thinking", "redacted_thinking", "tool_use":
+		case "thinking", "redacted_thinking":
 			return true
 		}
 		return probe.Signature != ""
