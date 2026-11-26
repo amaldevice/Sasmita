@@ -6,7 +6,7 @@ _Avoid_: memory, context
 **Active context**: Isi yang dikirim ke model untuk satu langkah. Turunan dari canonical history, bukan sumber kebenaran.
 _Avoid_: history, prompt
 
-**Context note**: Informasi dinamis (tanggal, task state, hasil retrieval) yang ditempel ke pesan user baru. Setelah terkirim menjadi bagian canonical history dan tidak diubah.
+**Context note**: Informasi dinamis (pergantian tanggal, perubahan workspace, lampiran, memory hasil retrieval) yang ditempel ke user turn, berisi hanya apa yang berubah sejak note sebelumnya. Setelah terkirim menjadi bagian canonical history dan tidak diubah.
 _Avoid_: system reminder, injected context
 
 **Harness profile**: Lingkungan kerja sebuah run: instruksi, tools, skills, workspace, izin, dan kebijakan context. Model hanya salah satu field-nya.
