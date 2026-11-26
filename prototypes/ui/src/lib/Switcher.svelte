@@ -4,7 +4,7 @@
   let { variant, world, theme, lang, set, replay }: { variant: string; world: string; theme: string; lang: string; set: (k: Key, v: string) => void; replay: () => void } = $props();
 
   const variants = [['A', 'Standar'], ['B', 'Workspace terbelah'], ['C', 'Halaman baca']];
-  const worlds = [['papan', 'Papan Tulis Kelas'], ['koran', 'Infografis Koran'], ['canon', 'Standar kategori']];
+  const worlds = [['canon', 'Standar kategori'], ['papan', 'Papan Tulis Kelas'], ['koran', 'Infografis Koran']];
   let idx = $derived(variants.findIndex(([k]) => k === variant));
   const cycle = (d: number) => set('variant', variants[(idx + d + variants.length) % variants.length][0]);
 

@@ -9,8 +9,8 @@
 
   const q = new URLSearchParams(location.search);
   let variant = $state(q.get('variant') ?? 'A');
-  let world = $state(q.get('world') ?? 'papan');
-  let theme = $state(q.get('theme') ?? 'dark');
+  let world = $state(q.get('world') ?? 'canon');
+  let theme = $state(q.get('theme') ?? 'light');
   let lang = $state<Lang>((q.get('lang') as Lang) ?? 'id');
 
   let s = $derived(t(lang));
@@ -46,6 +46,6 @@
 </script>
 
 {#key runKey}
-  <Workspace {s} {run} {tokens} />
+  <Workspace {s} {run} {tokens} replay={restart} />
 {/key}
 <Switcher {variant} {world} {theme} {lang} {set} replay={restart} />

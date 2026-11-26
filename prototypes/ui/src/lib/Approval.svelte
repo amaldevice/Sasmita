@@ -41,7 +41,7 @@
   .btns button { padding: 7px 14px; border-radius: 6px; border: 1px solid var(--line); font-weight: 600; font-size: 14px; transition: background 150ms var(--ease-out), transform 120ms var(--ease-out); }
   .btns button:hover { background: var(--raise); }
   .btns button:active { transform: scale(0.97); }
-  .btns .primary { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .btns .primary { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
   .btns .ghost { border-color: transparent; color: var(--mute); }
   .saved { display: flex; gap: 8px; align-items: center; color: var(--ok); font-weight: 600; }
   .saved svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.4; stroke-dasharray: 24; stroke-dashoffset: 24; animation: tick 400ms var(--ease-out) forwards; }

@@ -11,7 +11,9 @@
   import type { AnswerRun, Token } from '../lib/run.svelte';
 
   type Fmt = 'stack' | 'stack2' | 'side';
-  let { s, run, tokens }: { s: Strings; run: AnswerRun; tokens: Token[] } = $props();
+  let { s, run, tokens, replay }: { s: Strings; run: AnswerRun; tokens: Token[]; replay: () => void } = $props();
+  let empty = $state(false);
+  function ask() { empty = false; replay(); }
 
   const q = new URLSearchParams(location.search);
   let view = $state<'chat' | 'read'>(q.get('view') === 'read' ? 'read' : 'chat');
@@ -47,7 +49,7 @@
 {/snippet}
 
 <div class={['app', view, panel !== 'off' && 'withPanel', panel === 'full' && 'full']}>
-  {#if view === 'read'}<Chrome part="rail" {s} />{:else}<Chrome part="sidebar" {s} />{/if}
+  {#if view === 'read'}<Chrome part="rail" {s} />{:else}<Chrome part="sidebar" {s} onnew={() => { empty = true; run.destroy(); }} />{/if}
 
   <main>
     <header>
@@ -59,6 +61,17 @@
       </div>
     </header>
     <div class="scroll">
+      {#if empty}
+        <div class="empty" in:fade={{ duration: 200 }}>
+          <h1>{s.empty}</h1>
+          <p>{s.emptySub}</p>
+          <div class="sugg">
+            {#each s.suggest as [a, b], i (a)}
+              <button onclick={ask} in:fly={{ y: 8, duration: 300, delay: 60 * i }}><b>{a}</b><span>{b}</span></button>
+            {/each}
+          </div>
+        </div>
+      {:else}
       <div class="col">
         <div class="user" in:fly={{ y: 10, duration: 300 }}>{s.ask}</div>
         <Activity {s} {run} />
@@ -80,9 +93,15 @@
           {#if run.stage >= 4}<div class="words"><StreamText {tokens} shown={run.words} columns={inline && textCols} /></div>{/if}
         </div>
 
-        {#if run.stage >= 5}<p class="usage" in:fade>{s.usage}</p>{/if}
+        {#if run.stage >= 5}
+          <p class="usage num" in:fade>
+            <span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="7" /><path d="M12 9v4l2 2M10 3h4" /></svg>{s.meta[0]}</span>
+            <span>↑ {s.meta[1]}</span><span>↓ {s.meta[2]}</span><span class="hit">{s.meta[3]}</span>
+          </p>
+        {/if}
         <Approval {s} {run} />
       </div>
+      {/if}
     </div>
     <div class="dock"><Chrome part="composer" {s} /></div>
   </main>
@@ -105,11 +124,13 @@
 
 <style>
   .ic { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; }
-  .app { display: grid; grid-template-columns: 272px 1fr; height: 100vh; transition: grid-template-columns 320ms var(--ease-out); }
+  .app { display: grid; grid-template-columns: 272px 1fr; gap: 8px; padding: 8px; height: 100vh; transition: grid-template-columns 320ms var(--ease-out); }
+  .app > :global(*) { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--bg); }
   .app.read { grid-template-columns: 64px 1fr; }
   .app.withPanel { grid-template-columns: 272px minmax(380px, 1fr) 1.25fr; }
   .app.read.withPanel { grid-template-columns: 64px minmax(380px, 1fr) 1.25fr; }
-  .app.full { grid-template-columns: 0 0 1fr; }
+  .app.full { grid-template-columns: 0 0 1fr; gap: 0; }
+  .app.full > :global(:not(.panel)) { border: 0; }
   .app.full > :global(:not(.panel)) { visibility: hidden; }
 
   main { display: flex; flex-direction: column; min-height: 0; min-width: 0; position: relative; }
@@ -157,11 +178,22 @@
   .ref { display: flex; gap: 10px; align-items: center; width: 100%; padding: 12px 14px; border: 1px dashed var(--line); border-radius: var(--r-md); color: var(--mute); }
   .ref:hover { color: var(--text); border-style: solid; }
   .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); animation: breathe 1.6s ease-in-out infinite; }
-  .usage { font-size: 13px; color: var(--mute); margin-top: 4px; }
+  .usage { display: flex; gap: 16px; font: 12.5px var(--mono); color: var(--mute); margin-top: 6px; }
+  .usage span { display: inline-flex; gap: 5px; align-items: center; }
+  .usage svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 1.8; }
+  .usage .hit { color: var(--ok); }
+  .empty { max-width: 760px; margin: 14vh auto 0; text-align: center; }
+  .empty h1 { font: 700 36px/1.15 var(--display); letter-spacing: -0.02em; margin-bottom: 8px; }
+  .empty > p { color: var(--mute); max-width: 52ch; margin: 0 auto 36px; }
+  .sugg { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; text-align: left; }
+  .sugg button { display: grid; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); transition: border-color 150ms var(--ease-out), translate 150ms var(--ease-out); }
+  .sugg button:hover { border-color: color-mix(in srgb, var(--text) 30%, var(--line)); translate: 0 -1px; }
+  .sugg b { font-weight: 600; }
+  .sugg span { color: var(--mute); }
   .dock { position: absolute; left: 0; right: 0; bottom: 20px; padding: 0 24px; }
   .dock > :global(*) { max-width: 800px; margin: 0 auto; }
 
-  .panel { display: flex; flex-direction: column; min-width: 0; border-left: 1px solid var(--line); background: color-mix(in srgb, var(--side) 55%, var(--bg)); }
+  .panel { display: flex; flex-direction: column; min-width: 0; }
   .stage { flex: 1; overflow: auto; padding: 28px 40px; }
   .full .stage { padding: 40px max(40px, calc((100% - 1100px) / 2)); }
 </style>

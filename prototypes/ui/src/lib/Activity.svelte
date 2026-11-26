@@ -24,7 +24,7 @@
     {#if open}
       <ol transition:slide={{ duration: 220 }}>
         {#each s.steps as step, i (step)}
-          <li class={{ done: done || i < current, now: !done && i === current }}>{step}</li>
+          <li class={{ done: done || i < current, now: !done && i === current }}>{step}{#if s.tools[i]}<code>{s.tools[i]}</code>{/if}</li>
         {/each}
       </ol>
     {/if}
@@ -48,5 +48,6 @@
   li::before { content: ''; position: absolute; left: -5px; top: 9px; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--line); background: var(--bg); }
   li.done::before { background: var(--ok); border-color: var(--ok); }
   li.now { color: var(--text); }
+  code { font: 12px var(--mono); margin-left: 8px; padding: 1px 6px; border-radius: 4px; background: var(--raise); color: var(--mute); }
   li.now::before { border-color: var(--accent); border-style: dashed; animation: spin 1.6s linear infinite; }
 </style>

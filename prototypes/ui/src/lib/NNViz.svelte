@@ -110,7 +110,7 @@
 
   .charts { display: grid; grid-template-columns: 1.5fr 1fr; gap: 28px; align-items: end; }
   .stack .charts { grid-template-columns: 1fr; gap: 12px; }
-  .stack .chart { max-width: 420px; }
+  .stack .chart { height: 180px; }
   .big .charts { gap: 40px; }
   svg { width: 100%; height: auto; overflow: visible; display: block; }
   text { fill: var(--mute); font: 12.5px var(--font); }

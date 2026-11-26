@@ -14,7 +14,7 @@
 
 <script lang="ts">
   import type { Strings } from './i18n';
-  let { part, s, compact = false }: { part: 'sidebar' | 'rail' | 'composer' | 'skeleton'; s: Strings; compact?: boolean } = $props();
+  let { part, s, compact = false, onnew }: { part: 'sidebar' | 'rail' | 'composer' | 'skeleton'; s: Strings; compact?: boolean; onnew?: () => void } = $props();
   let focused = $state(false);
   let value = $state('');
 </script>
@@ -27,12 +27,12 @@
   <aside class="side">
     <div class="brand">Sasmita</div>
     <nav>
-      <button class="nav">{@render icon('plus')}{s.newChat}</button>
+      <button class="nav" onclick={onnew}>{@render icon('plus')}{s.newChat}</button>
       <button class="nav">{@render icon('search')}{s.search}</button>
       <button class="nav">{@render icon('folder')}{s.projects}</button>
       <button class="nav">{@render icon('box')}{s.artifacts}</button>
     </nav>
-    <div class="sec">{s.history}</div>
+    <div class="sec">{s.recent}</div>
     {#each s.chats as chat, i (chat)}
       <button class={['chat', i === 0 && 'on']} title={i === 1 ? s.running : i === 2 ? s.waiting : undefined}>
         <span class="name">{chat}</span>
@@ -73,7 +73,7 @@
   .nav, .chat { display: flex; gap: 12px; align-items: center; width: 100%; text-align: left; padding: 8px 10px; border-radius: var(--r-sm); font-weight: 500; transition: background 150ms var(--ease-out); }
   .nav:hover, .chat:hover { background: var(--raise); }
   .nav .ic { color: var(--mute); }
-  .sec { color: var(--mute); font-size: 13px; font-weight: 600; padding: 18px 10px 6px; }
+  .sec { color: var(--mute); font: 500 11.5px var(--mono); letter-spacing: 0.06em; padding: 20px 10px 6px; }
   .chat { color: var(--mute); font-size: 14.5px; padding: 7px 10px; }
   .chat.on { background: var(--raise); color: var(--text); }
   .name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -101,7 +101,7 @@
   .chip:hover { background: var(--raise); }
   .chip.icon { padding: 4px 8px; display: grid; place-items: center; }
   .send { margin-left: auto; width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; background: var(--raise); color: var(--mute); transition: background 200ms var(--ease-out), color 200ms var(--ease-out), transform 120ms var(--ease-out); }
-  .send.ready { background: var(--text); color: var(--bg); }
+  .send.ready { background: var(--ink); color: var(--on-ink); }
   .send:active { transform: scale(0.92); }
 
   .skel { display: grid; gap: 14px; padding: 4px 0 12px; }

@@ -14,11 +14,7 @@
   {#each paras as words, p (p)}
     <p>
       {#each words as { tok, i } (i)}
-        {#if tok.bold}
-          <strong class="b">{tok.w}</strong>{' '}
-        {:else}
-          <span class="w">{tok.w}</span>{' '}
-        {/if}
+        {#if i > 0 && !/^[.,;:!?)]/.test(tok.w)}{' '}{/if}{#if tok.bold}<strong class="b">{tok.w}</strong>{:else}<span class="w">{tok.w}</span>{/if}
       {/each}
       {#if streaming && p === paras.length - 1}<span class="caret" aria-hidden="true"></span>{/if}
     </p>

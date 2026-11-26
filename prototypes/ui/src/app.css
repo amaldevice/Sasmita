@@ -1,5 +1,7 @@
 /* PROTOTYPE tokens. Three worlds x dark/light. The real app would self-host fonts. */
 :root {
+  --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --ground: var(--bg); --ink: var(--text); --on-ink: var(--bg);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --r-sm: 6px; --r-md: 10px; --r-lg: 16px;
 }
@@ -27,22 +29,22 @@
   --user: #e7e3da; --on-accent: #ffffff;
 }
 [data-world='canon'] {
-  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; --display: var(--font);
-  --bg: #212121; --side: #181818; --surface: #2a2a2a; --raise: #303030; --line: #333333;
-  --text: #ececec; --mute: #9a9a9a; --accent: #6ea8fe; --flow: #3b82f6; --attn: #f87171; --ok: #4ade80;
-  --user: #303030; --on-accent: #0b1220;
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; --display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+  --ground: #141414; --bg: #1c1c1c; --side: #1c1c1c; --surface: #242424; --raise: #2b2b2b; --line: #333331;
+  --text: #ededeb; --mute: #9a9994; --accent: #7aa7ff; --flow: #5b8def; --attn: #f08a4b; --ok: #4ade80;
+  --user: #2b2b2b; --on-accent: #0b1220; --ink: #ededeb; --on-ink: #141414;
 }
 [data-world='canon'][data-theme='light'] {
-  --bg: #ffffff; --side: #f7f7f8; --surface: #ffffff; --raise: #f2f2f3; --line: #e5e5e5;
-  --text: #171717; --mute: #5f5f5f; --accent: #1d4ed8; --flow: #2563eb; --attn: #dc2626; --ok: #15803d;
-  --user: #f2f2f3; --on-accent: #ffffff;
+  --ground: #edece8; --bg: #fbfbfa; --side: #fbfbfa; --surface: #ffffff; --raise: #f1f0ec; --line: #e3e1db;
+  --text: #1b1b1a; --mute: #67665f; --accent: #2457d6; --flow: #2457d6; --attn: #c2410c; --ok: #15803d;
+  --user: #f1f0ec; --on-accent: #ffffff; --ink: #1b1b1a; --on-ink: #ffffff;
 }
 
 * { box-sizing: border-box; margin: 0; }
 html, body, #app { height: 100%; }
 body {
   font-size: 16.5px;
-  background: var(--bg); color: var(--text); font: 16px/1.6 var(--font);
+  background: var(--ground, var(--bg)); color: var(--text); font: 16px/1.6 var(--font);
   -webkit-font-smoothing: antialiased; transition: background 300ms var(--ease-out), color 300ms var(--ease-out);
 }
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
