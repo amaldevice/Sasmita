@@ -1,5 +1,7 @@
 export type Role = 'system' | 'user' | 'assistant';
 
+export type ShellView = 'chat' | 'search' | 'projects' | 'artifacts' | 'settings';
+
 export interface Conversation {
   id: string;
   projectId: string;
@@ -20,6 +22,21 @@ export interface Message {
 export interface ConversationDetail {
   conversation: Conversation;
   messages: Message[];
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  rootUri: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SearchResult {
+  conversationId: string;
+  title: string;
+  projectId: string;
+  snippet: string;
 }
 
 export interface StartRunRequest {

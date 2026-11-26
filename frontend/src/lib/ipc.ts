@@ -5,8 +5,10 @@ import { isActiveStatus, latestSeq } from './activity';
 import type {
   Conversation,
   ConversationDetail,
+  Project,
   Role,
   RunEvent,
+  SearchResult,
   RunHandle,
   RunRecord,
   RunSnapshot,
@@ -21,7 +23,12 @@ export interface IPC {
     cursor: string,
     limit: number,
   ): Promise<{ items: Conversation[]; nextCursor: string }>;
+  listRecentConversations(cursor: string, limit: number): Promise<{ items: Conversation[]; nextCursor: string }>;
   getConversation(conversationId: string): Promise<ConversationDetail>;
+  renameConversation(conversationId: string, title: string): Promise<Conversation>;
+  moveConversation(conversationId: string, projectId: string): Promise<Conversation>;
+  searchConversations(query: string, limit: number): Promise<SearchResult[]>;
+  listProjects(): Promise<Project[]>;
   startRun(req: StartRunRequest, onEvent: (event: RunEvent) => void): Promise<RunHandle>;
   cancelRun(runId: string): Promise<void>;
   listRuns(conversationId: string): Promise<RunRecord[]>;
@@ -41,6 +48,10 @@ export class MyGoIPC implements IPC {
     limit: number,
   ): Promise<{ items: Conversation[]; nextCursor: string }> {
     return shellService.listConversations(projectId, cursor, limit);
+  }
+
+  listRecentConversations(cursor: string, limit: number): Promise<{ items: Conversation[]; nextCursor: string }> {
+    return shellService.listRecentConversations(cursor, limit);
   }
 
   async getConversation(conversationId: string): Promise<ConversationDetail> {
@@ -71,6 +82,22 @@ export class MyGoIPC implements IPC {
     return { runId: resumedId };
   }
 
+  renameConversation(conversationId: string, title: string): Promise<Conversation> {
+    return shellService.renameConversation(conversationId, title);
+  }
+
+  moveConversation(conversationId: string, projectId: string): Promise<Conversation> {
+    return shellService.moveConversation(conversationId, projectId);
+  }
+
+  async searchConversations(query: string, limit: number): Promise<SearchResult[]> {
+    return shellService.searchConversations(query, limit);
+  }
+
+  listProjects(): Promise<Project[]> {
+    return shellService.listProjects();
+  }
+
   getRunSnapshot(runId: string): Promise<RunSnapshot> {
     return shellService.getRunSnapshot(runId);
   }
@@ -83,6 +110,7 @@ interface StoredState {
   details: Record<string, ConversationDetail>;
   snapshots: Record<string, RunSnapshot>;
   runs: RunRecord[];
+  projects: Project[];
 }
 
 function seedState(): StoredState {
@@ -100,6 +128,10 @@ function seedState(): StoredState {
     details: { [conversation.id]: { conversation, messages: [] } },
     snapshots: {},
     runs: [],
+    projects: [
+      { id: 'p1', name: 'Work', rootUri: 'file:///work', createdAt: now, updatedAt: now },
+      { id: 'p2', name: 'Personal', rootUri: '', createdAt: now, updatedAt: now },
+    ],
   };
 }
 
@@ -125,6 +157,7 @@ export class FakeIPC implements IPC {
             details: parsed.details ?? {},
             snapshots: parsed.snapshots ?? {},
             runs: parsed.runs ?? [],
+            projects: parsed.projects ?? seedState().projects,
           }
         : seedState();
     } catch {
@@ -164,6 +197,51 @@ export class FakeIPC implements IPC {
     const detail = this.state.details[conversationId];
     if (!detail) throw new Error(`conversation ${conversationId} not found`);
     return structuredClone(detail);
+  }
+
+  async listRecentConversations(): Promise<{ items: Conversation[]; nextCursor: string }> {
+    const items = [...this.state.conversations].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    return { items, nextCursor: '' };
+  }
+
+  async renameConversation(conversationId: string, title: string): Promise<Conversation> {
+    const now = new Date().toISOString();
+    const update = (c: Conversation): Conversation => ({ ...c, title, updatedAt: now });
+    this.state.conversations = this.state.conversations.map((c) => c.id === conversationId ? update(c) : c);
+    const detail = this.state.details[conversationId];
+    if (detail) this.state.details[conversationId] = { ...detail, conversation: update(detail.conversation) };
+    this.save();
+    return this.state.conversations.find((c) => c.id === conversationId)!;
+  }
+
+  async moveConversation(conversationId: string, projectId: string): Promise<Conversation> {
+    const now = new Date().toISOString();
+    const update = (c: Conversation): Conversation => ({ ...c, projectId, updatedAt: now });
+    this.state.conversations = this.state.conversations.map((c) => c.id === conversationId ? update(c) : c);
+    const detail = this.state.details[conversationId];
+    if (detail) this.state.details[conversationId] = { ...detail, conversation: update(detail.conversation) };
+    this.save();
+    return this.state.conversations.find((c) => c.id === conversationId)!;
+  }
+
+  async searchConversations(query: string, limit: number): Promise<SearchResult[]> {
+    const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+    if (terms.length === 0) return [];
+    const results: SearchResult[] = [];
+    for (const c of this.state.conversations) {
+      const messages = this.state.details[c.id]?.messages ?? [];
+      for (const text of [c.title, ...messages.map((m) => m.text)]) {
+        const lower = text.toLowerCase();
+        if (terms.every((term) => lower.includes(term))) {
+          results.push({ conversationId: c.id, title: c.title, projectId: c.projectId, snippet: text });
+        }
+      }
+    }
+    return results.slice(0, limit || 20);
+  }
+
+  async listProjects(): Promise<Project[]> {
+    return structuredClone(this.state.projects);
   }
 
   async getRunSnapshot(runId: string): Promise<RunSnapshot> {

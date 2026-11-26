@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/amaldevice/sasmita/internal/domain"
 )
@@ -63,14 +64,30 @@ func (s *Store) GetConversation(ctx context.Context, id string) (*domain.Convers
 // ListConversations uses keyset pagination. The cursor is the last row's
 // updated_at and id, so ordering and the next cursor are stable.
 func (s *Store) ListConversations(ctx context.Context, projectID, cursor string, limit int) ([]domain.Conversation, string, error) {
+	return s.listPage(ctx, cursor, limit, `project_id = ?`, projectID)
+}
+
+// ListRecentConversations is the sidebar's cross-project "recent" view.
+func (s *Store) ListRecentConversations(ctx context.Context, cursor string, limit int) ([]domain.Conversation, string, error) {
+	return s.listPage(ctx, cursor, limit, "", nil)
+}
+
+func (s *Store) listPage(ctx context.Context, cursor string, limit int, where string, whereArg any) ([]domain.Conversation, string, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	query := `SELECT id, project_id, title, active_harness_id, created_at, updated_at
-	          FROM conversations WHERE project_id = ?`
-	args := []any{projectID}
+	query := `SELECT id, project_id, title, active_harness_id, created_at, updated_at FROM conversations`
+	args := []any{}
+	if where != "" {
+		query += ` WHERE ` + where
+		args = append(args, whereArg)
+	}
 	if parts := strings.SplitN(cursor, "|", 2); len(parts) == 2 {
-		query += ` AND (updated_at < ? OR (updated_at = ? AND id < ?))`
+		if where == "" {
+			query += ` WHERE (updated_at < ? OR (updated_at = ? AND id < ?))`
+		} else {
+			query += ` AND (updated_at < ? OR (updated_at = ? AND id < ?))`
+		}
 		args = append(args, parts[0], parts[0], parts[1])
 	}
 	query += ` ORDER BY updated_at DESC, id DESC LIMIT ?`
@@ -397,6 +414,116 @@ func (s *Store) StartRetryTx(ctx context.Context, run *domain.Run, touchedAt tim
 		return err
 	}
 	return tx.Commit()
+}
+
+// ftsQuery turns free-form user input into a safe FTS5 MATCH expression. Each
+// token is quoted (so punctuation cannot be read as FTS syntax) and made a
+// prefix, so "conv" matches "conversation" in either Indonesian or English.
+func ftsQuery(raw string) string {
+	tokens := strings.FieldsFunc(raw, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	terms := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		quoted := `"` + strings.ReplaceAll(token, `"`, `""`) + `"*`
+		terms = append(terms, quoted)
+	}
+	return strings.Join(terms, " AND ")
+}
+
+// SearchConversations ranks hits across titles and message text. One
+// conversation may have several FTS rows, so results are de-duplicated keeping
+// the best (lowest bm25) rank first.
+func (s *Store) SearchConversations(ctx context.Context, raw string, limit int) ([]domain.SearchResult, error) {
+	match := ftsQuery(raw)
+	if match == "" {
+		return nil, nil
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT f.conversation_id, c.title, c.project_id, bm25(conversation_fts) AS rank,
+		       snippet(conversation_fts, 3, '', '', '…', 12) AS snippet
+		FROM conversation_fts AS f
+		JOIN conversations AS c ON c.id = f.conversation_id
+		WHERE conversation_fts MATCH ?
+		ORDER BY rank
+		LIMIT ?`, match, limit*4)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []domain.SearchResult
+	seen := make(map[string]bool)
+	for rows.Next() {
+		var r domain.SearchResult
+		var rank float64
+		if err := rows.Scan(&r.ConversationID, &r.Title, &r.ProjectID, &rank, &r.Snippet); err != nil {
+			return nil, err
+		}
+		if seen[r.ConversationID] {
+			continue
+		}
+		seen[r.ConversationID] = true
+		out = append(out, r)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) RenameConversation(ctx context.Context, id, title string, at time.Time) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?`, title, stamp(at), id)
+	if err != nil {
+		return err
+	}
+	return changed(res)
+}
+
+func (s *Store) MoveConversation(ctx context.Context, id, projectID string, at time.Time) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE conversations SET project_id = ?, updated_at = ? WHERE id = ?`, projectID, stamp(at), id)
+	if err != nil {
+		return err
+	}
+	return changed(res)
+}
+
+// ListProjects omits the internal no-project sentinel row.
+func (s *Store) ListProjects(ctx context.Context) ([]domain.Project, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, name, root_uri, created_at, updated_at
+		 FROM projects WHERE id <> '' ORDER BY name COLLATE NOCASE, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.Project
+	for rows.Next() {
+		var p domain.Project
+		var created, updated string
+		if err := rows.Scan(&p.ID, &p.Name, &p.RootURI, &created, &updated); err != nil {
+			return nil, err
+		}
+		p.CreatedAt, p.UpdatedAt = parseStamp(created), parseStamp(updated)
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+func changed(res sql.Result) error {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) ListUsage(ctx context.Context, runID string) ([]domain.Usage, error) {

@@ -33,6 +33,10 @@ func (s *shellService) ListConversations(ctx context.Context, projectID, cursor 
 	return s.bindings.ListConversations(ctx, projectID, cursor, limit)
 }
 
+func (s *shellService) ListRecentConversations(ctx context.Context, cursor string, limit int) (desktop.ConversationPageDTO, error) {
+	return s.bindings.ListRecentConversations(ctx, cursor, limit)
+}
+
 func (s *shellService) GetConversation(ctx context.Context, conversationID string) (desktop.ConversationDetailDTO, error) {
 	return s.bindings.GetConversation(ctx, conversationID)
 }
@@ -47,6 +51,22 @@ func (s *shellService) CancelRun(ctx context.Context, runID string) error {
 
 func (s *shellService) ListRuns(ctx context.Context, conversationID string) ([]desktop.RunDTO, error) {
 	return s.bindings.ListRuns(ctx, conversationID)
+}
+
+func (s *shellService) RenameConversation(ctx context.Context, conversationID, title string) (desktop.ConversationDTO, error) {
+	return s.bindings.RenameConversation(ctx, conversationID, title)
+}
+
+func (s *shellService) MoveConversation(ctx context.Context, conversationID, projectID string) (desktop.ConversationDTO, error) {
+	return s.bindings.MoveConversation(ctx, conversationID, projectID)
+}
+
+func (s *shellService) SearchConversations(ctx context.Context, query string, limit int) ([]desktop.SearchResultDTO, error) {
+	return s.bindings.SearchConversations(ctx, query, limit)
+}
+
+func (s *shellService) ListProjects(ctx context.Context) ([]desktop.ProjectDTO, error) {
+	return s.bindings.ListProjects(ctx)
 }
 
 // streamRun forwards RunEvents through a typed MyGo channel. The method stays

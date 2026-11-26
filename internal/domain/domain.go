@@ -34,6 +34,19 @@ type ConversationDetail struct {
 	Messages     []Message
 }
 
+// NoProjectID is the project id of a conversation that is not in a project.
+// Such a conversation has no folder to open (the sentinel project's root_uri
+// is empty). See migrations/003_init.sql.
+const NoProjectID = ""
+
+// SearchResult is one hit from full-text search over titles and messages.
+type SearchResult struct {
+	ConversationID string
+	Title          string
+	ProjectID      string
+	Snippet        string
+}
+
 // ContentPart keeps message content structured so multimodal references and
 // tool-call IDs can be added without changing the wire shape.
 type ContentPart struct {

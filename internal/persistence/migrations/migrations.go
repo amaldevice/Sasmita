@@ -18,8 +18,8 @@ var files embed.FS
 
 // Migrate brings db up to Latest. Each migration is applied once, in its own
 // transaction, together with its version stamp. Applied files are tracked by
-// name as well: migrations for parallel tickets can land in any order, so a
-// missing version must not permanently hide a later migration (or vice versa).
+// name as well: parallel ticket lanes can land files out of numeric order, so
+// neither a gap nor an out-of-order arrival may skip a migration permanently.
 func Migrate(db *sql.DB) error {
 	for _, ddl := range []string{
 		`CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -46,12 +46,27 @@ func Migrate(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
+	if len(applied) == 0 {
+		// Databases created before file tracking existed: their version stamp
+		// still describes every migration numbered up to that version.
+		current, err := Version(db)
+		if err != nil {
+			return err
+		}
+		for _, name := range names {
+			version, err := strconv.Atoi(name[:3])
+			if err == nil && version <= current {
+				applied[name] = true
+			}
+		}
+	}
+
 	for _, name := range names {
 		version, err := strconv.Atoi(name[:3])
-		if err != nil || version > Latest {
-			continue
+		if err != nil {
+			return fmt.Errorf("migration %s: %w", name, err)
 		}
-		if applied[name] {
+		if version > Latest || applied[name] {
 			continue
 		}
 		script, err := files.ReadFile(name)
