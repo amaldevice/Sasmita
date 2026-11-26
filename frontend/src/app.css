@@ -1,0 +1,35 @@
+/* Design tokens from DESIGN.md (canon theme, dark by default). */
+:root {
+  --ground: #141414;
+  --bg: #1c1c1c;
+  --side: #1c1c1c;
+  --surface: #242424;
+  --raise: #2b2b2b;
+  --line: #333331;
+  --text: #ededeb;
+  --mute: #9a9994;
+  --accent: #7aa7ff;
+  --flow: #7aa7ff;
+  --attn: #f08a4b;
+  --ok: #4ade80;
+  --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+* { box-sizing: border-box; }
+html, body, #app { height: 100%; margin: 0; }
+body {
+  background: var(--ground);
+  color: var(--text);
+  font: 16.5px/1.6 -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+* { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+p, li { text-wrap: pretty; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
+}
