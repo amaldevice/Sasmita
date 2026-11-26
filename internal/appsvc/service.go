@@ -43,15 +43,25 @@ type Config struct {
 	// ContextNote supplies dynamic information for the tail note on the new
 	// user turn. It must never be placed in the static system instruction.
 	ContextNote func() string
-	Now         func() time.Time
-	NewID       func() string
-	Runtime     *runtime.Manager
+	// NoteSource is the delta-aware replacement for ContextNote. The builder
+	// emits only what changed since the previous note (GLOSSARY "context note").
+	NoteSource func() ctxlayout.NoteInput
+	// InputBudgetTokens enables automatic compaction at Threshold (0.75 by
+	// default) of the input budget; zero disables it.
+	InputBudgetTokens   int
+	CompactionThreshold float64
+	KeepUserTurns       int
+	Now                 func() time.Time
+	NewID               func() string
+	Runtime             *runtime.Manager
 }
 
 type Service struct {
 	store        *repositories.Store
 	cfg          Config
 	builder      ctxlayout.Builder
+	notes        *ctxlayout.NoteBuilder
+	compactor    ctxlayout.Compactor
 	runtime      *runtime.Manager
 	providerKind domain.ProviderKind
 }
@@ -96,10 +106,21 @@ func New(store *repositories.Store, cfg Config) *Service {
 	if aware, ok := cfg.Provider.(model.ProviderKindAware); ok {
 		kind = domain.ProviderKind(aware.ProviderKind())
 	}
+	builder := ctxlayout.Builder{Tools: cfg.Tools}
 	return &Service{
-		store:        store,
-		cfg:          cfg,
-		builder:      ctxlayout.Builder{Tools: cfg.Tools},
+		store:   store,
+		cfg:     cfg,
+		builder: builder,
+		notes:   ctxlayout.NewNoteBuilder(),
+		compactor: ctxlayout.Compactor{
+			Provider:          cfg.Provider,
+			Builder:           builder,
+			InputBudgetTokens: cfg.InputBudgetTokens,
+			Threshold:         cfg.CompactionThreshold,
+			KeepUserTurns:     cfg.KeepUserTurns,
+			NewID:             cfg.NewID,
+			Now:               cfg.Now,
+		},
 		runtime:      cfg.Runtime,
 		providerKind: kind,
 	}
