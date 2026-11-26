@@ -27,7 +27,7 @@ import (
 
 const (
 	defaultModel   = "gpt-4o-mini"
-	defaultHarness = "chat"
+	defaultMode = "chat"
 )
 
 type Config struct {
@@ -35,7 +35,6 @@ type Config struct {
 	DefaultModel     string
 	CoalesceSize     int
 	CoalesceInterval time.Duration // 0 disables timer-based flushing
-	ContextLimit     int           // retained for callers; no longer truncates history
 	Tools            []model.ToolDefinition
 	// EnableTools opts a service into the built-in toolset (#22). Tool schemas
 	// are frozen for the service lifetime; without it the wire is unchanged.
@@ -85,9 +84,6 @@ func New(store *repositories.Store, cfg Config) *Service {
 	if cfg.CoalesceSize <= 0 {
 		cfg.CoalesceSize = 32
 	}
-	if cfg.ContextLimit <= 0 {
-		cfg.ContextLimit = 50
-	}
 	if cfg.DefaultModel == "" {
 		cfg.DefaultModel = defaultModel
 	}
@@ -115,8 +111,8 @@ func New(store *repositories.Store, cfg Config) *Service {
 			gen = genui.NewStore()
 			registry.Register(genui.NewRenderTool(gen))
 			registry.Register(genui.NewSkillTool())
-			// Meta-tools join the frozen list before it is captured; query_table
-			// is discovery-only and becomes native only at compaction.
+			// Meta-tools join the frozen list before it is captured. No
+			// discovery-only tools are enabled in v1 (query_table is Phase 4).
 			disc = discovery.New(registry, discovery.DispatcherConfig{})
 			cfg.Tools = registry.Definitions()
 		}
@@ -167,18 +163,18 @@ func randomID() string {
 	return hex.EncodeToString(b[:])
 }
 
-func (s *Service) CreateConversation(ctx context.Context, projectID, title, harnessID string) (*domain.Conversation, error) {
+func (s *Service) CreateConversation(ctx context.Context, projectID, title, modeID string) (*domain.Conversation, error) {
 	// An empty project id is valid: the conversation is not in a project and
 	// therefore has no folder to open (migrations/003_init.sql).
-	if harnessID == "" {
-		harnessID = defaultHarness
+	if modeID == "" {
+		modeID = defaultMode
 	}
 	now := s.cfg.Now()
 	conv := &domain.Conversation{
 		ID:              s.cfg.NewID(),
 		ProjectID:       projectID,
 		Title:           title,
-		ActiveHarnessID: harnessID,
+		ActiveModeID: modeID,
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}

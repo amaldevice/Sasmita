@@ -85,7 +85,7 @@ func TestSeam1AnthropicStreamingAndNoKeyInEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	handle, err := svc.StartRun(ctx, domain.StartRunRequest{
-		ConversationID: conv.ID, Text: "hi", ModelRef: "claude-test", HarnessID: "chat",
+		ConversationID: conv.ID, Text: "hi", ModelRef: "claude-test", ModeID: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)

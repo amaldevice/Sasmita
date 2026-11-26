@@ -29,7 +29,7 @@ import type {
 
 /** The typed IPC surface the Go shell (MyGo, or the Wails fallback) provides. */
 export interface IPC {
-  createConversation(projectId: string, title: string, harnessId: string): Promise<Conversation>;
+  createConversation(projectId: string, title: string, modeId: string): Promise<Conversation>;
   listConversations(
     projectId: string,
     cursor: string,
@@ -65,8 +65,8 @@ const resolveApprovalBinding = bind<[string, string, string], void>(
 
 /** Uses the TypeScript client generated from the Go bindings by `mygo generate`. */
 export class MyGoIPC implements IPC {
-  createConversation(projectId: string, title: string, harnessId: string): Promise<Conversation> {
-    return shellService.createConversation(projectId, title, harnessId);
+  createConversation(projectId: string, title: string, modeId: string): Promise<Conversation> {
+    return shellService.createConversation(projectId, title, modeId);
   }
 
   listConversations(
@@ -175,7 +175,7 @@ function seedState(): StoredState {
     id: 'conv-1',
     projectId: 'p1',
     title: 'First chat',
-    activeHarnessId: 'chat',
+    activeModeId: 'chat',
     createdAt: now,
     updatedAt: now,
   };
@@ -232,13 +232,13 @@ export class FakeIPC implements IPC {
     return `run-${Date.now()}-${this.nextRun++}`;
   }
 
-  async createConversation(projectId: string, title: string, harnessId: string): Promise<Conversation> {
+  async createConversation(projectId: string, title: string, modeId: string): Promise<Conversation> {
     const now = new Date().toISOString();
     const conversation: Conversation = {
       id: `conv-${Date.now()}`,
       projectId,
       title,
-      activeHarnessId: harnessId,
+      activeModeId: modeId,
       createdAt: now,
       updatedAt: now,
     };

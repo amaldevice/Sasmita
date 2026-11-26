@@ -61,7 +61,7 @@
 
   onMount(() => {
     // The Go watchdog reloads the page and invokes this hook with the offender
-    // it marked froze_view in SQLite. The replay harness uses the same hook.
+    // it marked froze_view in SQLite. The replay fixture uses the same hook.
     const previous = (window as unknown as Record<string, unknown>).__sasmitaWatchdog;
     (window as unknown as Record<string, unknown>).__sasmitaWatchdog = (id: string) => {
       dispatch({ type: 'WATCHDOG_FREEZE', id });

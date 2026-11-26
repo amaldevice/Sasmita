@@ -1,8 +1,8 @@
-// Package harness owns the built-in Mode catalog. A Mode is a working
+// Package modes owns the built-in Mode catalog. A Mode is a working
 // environment: instructions, tools, skills, workspace, permissions and context
 // policy. A model is one field selected for a run, not the Mode itself
 // (GLOSSARY.md, TAD §10.1).
-package harness
+package modes
 
 import "errors"
 
@@ -66,7 +66,9 @@ var builtins = []Mode{
 	{
 		ID: ModeAnalisData, Name: "Analis Data",
 		Instructions: "Analyse tabular data with bounded queries and report the method used.",
-		ToolsetIDs:   []string{"query_table"}, SkillIDs: []string{},
+		// query_table belongs to Phase 4 and is out of scope for v1: this Mode
+		// stays listed as "coming later" with no enabled tools.
+		ToolsetIDs: []string{}, SkillIDs: []string{},
 		Workspace: "attached", PermissionProfile: "data-worker", ContextPolicy: "full-history",
 		Available: false, Phase: 4,
 	},

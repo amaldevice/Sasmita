@@ -1,5 +1,8 @@
 // Package repositories owns all SQL for the v1 core tables. Application
 // services depend on Store, never on database/sql directly.
+//
+// The columns active_harness_id / harness_id keep their 001_init.sql names for
+// on-disk compatibility; the domain and wire vocabulary is Mode (GLOSSARY.md).
 package repositories
 
 import (
@@ -41,7 +44,7 @@ func (s *Store) CreateConversation(ctx context.Context, c *domain.Conversation) 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO conversations(id, project_id, title, active_harness_id, created_at, updated_at)
 		 VALUES(?,?,?,?,?,?)`,
-		c.ID, c.ProjectID, c.Title, c.ActiveHarnessID, stamp(c.CreatedAt), stamp(c.UpdatedAt))
+		c.ID, c.ProjectID, c.Title, c.ActiveModeID, stamp(c.CreatedAt), stamp(c.UpdatedAt))
 	return err
 }
 
@@ -51,7 +54,7 @@ func (s *Store) GetConversation(ctx context.Context, id string) (*domain.Convers
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, title, active_harness_id, created_at, updated_at
 		 FROM conversations WHERE id = ?`, id,
-	).Scan(&c.ID, &c.ProjectID, &c.Title, &c.ActiveHarnessID, &created, &updated)
+	).Scan(&c.ID, &c.ProjectID, &c.Title, &c.ActiveModeID, &created, &updated)
 	if err == sql.ErrNoRows {
 		return nil, domain.ErrNotFound
 	}
@@ -104,7 +107,7 @@ func (s *Store) listPage(ctx context.Context, cursor string, limit int, where st
 	for rows.Next() {
 		var c domain.Conversation
 		var created, updated string
-		if err := rows.Scan(&c.ID, &c.ProjectID, &c.Title, &c.ActiveHarnessID, &created, &updated); err != nil {
+		if err := rows.Scan(&c.ID, &c.ProjectID, &c.Title, &c.ActiveModeID, &created, &updated); err != nil {
 			return nil, "", err
 		}
 		c.CreatedAt, c.UpdatedAt = parseStamp(created), parseStamp(updated)
@@ -179,7 +182,7 @@ func (s *Store) CreateRun(ctx context.Context, r *domain.Run) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO runs(id, conversation_id, status, model_ref, harness_id, started_at, finished_at, original_run_id)
 		 VALUES(?,?,?,?,?,?,NULL,?)`,
-		r.ID, r.ConversationID, string(r.Status), r.ModelRef, r.HarnessID, stamp(r.StartedAt), nullableID(r.OriginalRunID))
+		r.ID, r.ConversationID, string(r.Status), r.ModelRef, r.ModeID, stamp(r.StartedAt), nullableID(r.OriginalRunID))
 	return err
 }
 
@@ -233,7 +236,7 @@ func (s *Store) GetRun(ctx context.Context, id string) (*domain.Run, error) {
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, conversation_id, status, model_ref, harness_id, started_at, finished_at, original_run_id
 		 FROM runs WHERE id = ?`, id,
-	).Scan(&r.ID, &r.ConversationID, &status, &r.ModelRef, &r.HarnessID, &started, &finished, &original)
+	).Scan(&r.ID, &r.ConversationID, &status, &r.ModelRef, &r.ModeID, &started, &finished, &original)
 	if err == sql.ErrNoRows {
 		return nil, domain.ErrNotFound
 	}
@@ -329,7 +332,7 @@ func (s *Store) StartRunTx(ctx context.Context, run *domain.Run, msg *domain.Mes
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO runs(id, conversation_id, status, model_ref, harness_id, started_at, finished_at, original_run_id)
 		 VALUES(?,?,?,?,?,?,NULL,?)`,
-		run.ID, run.ConversationID, string(run.Status), run.ModelRef, run.HarnessID, stamp(run.StartedAt), nullableID(run.OriginalRunID),
+		run.ID, run.ConversationID, string(run.Status), run.ModelRef, run.ModeID, stamp(run.StartedAt), nullableID(run.OriginalRunID),
 	); err != nil {
 		tx.Rollback()
 		return err
@@ -382,7 +385,7 @@ func (s *Store) queryRuns(ctx context.Context, query string, args ...any) ([]dom
 		var r domain.Run
 		var status, started string
 		var finished, original sql.NullString
-		if err := rows.Scan(&r.ID, &r.ConversationID, &status, &r.ModelRef, &r.HarnessID, &started, &finished, &original); err != nil {
+		if err := rows.Scan(&r.ID, &r.ConversationID, &status, &r.ModelRef, &r.ModeID, &started, &finished, &original); err != nil {
 			return nil, err
 		}
 		r.Status, r.StartedAt = domain.RunStatus(status), parseStamp(started)
@@ -409,7 +412,7 @@ func (s *Store) StartRetryTx(ctx context.Context, run *domain.Run, touchedAt tim
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO runs(id, conversation_id, status, model_ref, harness_id, started_at, finished_at, original_run_id)
 		 VALUES(?,?,?,?,?,?,NULL,?)`,
-		run.ID, run.ConversationID, string(run.Status), run.ModelRef, run.HarnessID, stamp(run.StartedAt), nullableID(run.OriginalRunID),
+		run.ID, run.ConversationID, string(run.Status), run.ModelRef, run.ModeID, stamp(run.StartedAt), nullableID(run.OriginalRunID),
 	); err != nil {
 		return err
 	}

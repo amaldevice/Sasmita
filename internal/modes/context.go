@@ -1,4 +1,4 @@
-package harness
+package modes
 
 import (
 	"encoding/json"

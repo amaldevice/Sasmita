@@ -34,7 +34,7 @@ func TestConversationRoundtripAndRestart(t *testing.T) {
 	if err := store.CreateProject(ctx, &domain.Project{ID: "p1", Name: "Work", RootURI: "file:///work", CreatedAt: time.Now(), UpdatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	conv := &domain.Conversation{ID: "c1", ProjectID: "p1", Title: "First", ActiveHarnessID: "chat", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	conv := &domain.Conversation{ID: "c1", ProjectID: "p1", Title: "First", ActiveModeID: "chat", CreatedAt: time.Now(), UpdatedAt: time.Now()}
 	if err := store.CreateConversation(ctx, conv); err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestRunEventsMonotonicSeq(t *testing.T) {
 	if err := store.CreateConversation(ctx, &domain.Conversation{ID: "c1", ProjectID: "p1", Title: "First", CreatedAt: now, UpdatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.CreateRun(ctx, &domain.Run{ID: "r1", ConversationID: "c1", ModelRef: "m", HarnessID: "chat", Status: domain.RunQueued, StartedAt: now}); err != nil {
+	if err := store.CreateRun(ctx, &domain.Run{ID: "r1", ConversationID: "c1", ModelRef: "m", ModeID: "chat", Status: domain.RunQueued, StartedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 	for _, typ := range []string{domain.EventRunQueued, domain.EventRunStarted, domain.EventRunCompleted} {
@@ -108,7 +108,7 @@ func TestRunEventsMonotonicSeq(t *testing.T) {
 func seedRun(t *testing.T, store *repositories.Store, id string, status domain.RunStatus) {
 	t.Helper()
 	if err := store.CreateRun(t.Context(), &domain.Run{ID: id, ConversationID: "c1", Status: status,
-		ModelRef: "m", HarnessID: "chat", StartedAt: time.Now()}); err != nil {
+		ModelRef: "m", ModeID: "chat", StartedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -169,7 +169,7 @@ func TestRetryRunCarriesOriginalID(t *testing.T) {
 	seedRun(t, store, "original", domain.RunInterrupted)
 
 	retry := &domain.Run{ID: "retry", ConversationID: "c1", Status: domain.RunQueued,
-		ModelRef: "m", HarnessID: "chat", StartedAt: time.Now(), OriginalRunID: "original"}
+		ModelRef: "m", ModeID: "chat", StartedAt: time.Now(), OriginalRunID: "original"}
 	if err := store.StartRetryTx(ctx, retry, time.Now()); err != nil {
 		t.Fatalf("StartRetryTx: %v", err)
 	}

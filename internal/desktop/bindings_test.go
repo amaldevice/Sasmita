@@ -108,7 +108,7 @@ func TestBindingsCancelListAndResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := store.CreateRun(ctx, &domain.Run{ID: "stale", ConversationID: conv.ID, Status: domain.RunInterrupted,
-		ModelRef: "stub-model", HarnessID: "chat", StartedAt: time.Now()}); err != nil {
+		ModelRef: "stub-model", ModeID: "chat", StartedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 

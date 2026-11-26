@@ -39,8 +39,8 @@ test('sidebar badge marks a conversation waiting elsewhere', async ({ page }) =>
   await page.addInitScript(() => {
     const now = new Date().toISOString();
     localStorage.setItem('sasmita.fake.v1', JSON.stringify({
-      conversations: [{ id: 'conv-a', projectId: 'p1', title: 'Other chat', activeHarnessId: 'chat', createdAt: now, updatedAt: now }],
-      details: { 'conv-a': { conversation: { id: 'conv-a', projectId: 'p1', title: 'Other chat', activeHarnessId: 'chat', createdAt: now, updatedAt: now }, messages: [] } },
+      conversations: [{ id: 'conv-a', projectId: 'p1', title: 'Other chat', activeModeId: 'chat', createdAt: now, updatedAt: now }],
+      details: { 'conv-a': { conversation: { id: 'conv-a', projectId: 'p1', title: 'Other chat', activeModeId: 'chat', createdAt: now, updatedAt: now }, messages: [] } },
       snapshots: {},
       runs: [{ runId: 'r-wait', conversationId: 'conv-a', status: 'awaiting_approval', answer: '' }],
       projects: [{ id: 'p1', name: 'Work', rootUri: '', createdAt: now, updatedAt: now }],

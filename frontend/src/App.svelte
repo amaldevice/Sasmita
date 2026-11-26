@@ -294,7 +294,7 @@
     detail.messages = [...detail.messages, userMessage];
     run.begin();
     const handle = await ipc.startRun(
-      { conversationId: selectedId, text, modelRef: modelId || 'gpt-test', harnessId: modeId },
+      { conversationId: selectedId, text, modelRef: modelId || 'gpt-test', modeId: modeId },
       applyEvent,
     );
     run.setRunId(handle.runId);

@@ -8,7 +8,7 @@ export interface Conversation {
   id: string;
   projectId: string;
   title: string;
-  activeHarnessId: string;
+  activeModeId: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -90,7 +90,7 @@ export interface StartRunRequest {
   conversationId: string;
   text: string;
   modelRef: string;
-  harnessId: string;
+  modeId: string;
 }
 
 // Mirrors domain.RunEvent in internal/domain/events.go. Tags are fixed by TAD §14.2.

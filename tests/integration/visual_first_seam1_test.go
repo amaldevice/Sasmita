@@ -14,7 +14,7 @@ import (
 
 	"github.com/amaldevice/sasmita/internal/appsvc"
 	"github.com/amaldevice/sasmita/internal/domain"
-	"github.com/amaldevice/sasmita/internal/harness"
+	"github.com/amaldevice/sasmita/internal/modes"
 	ctxlayout "github.com/amaldevice/sasmita/internal/context"
 	"github.com/amaldevice/sasmita/internal/model/adapters/openai"
 	"github.com/amaldevice/sasmita/internal/persistence/migrations"
@@ -63,7 +63,7 @@ func TestSeam1ModeInstructionsAreVisualFirst(t *testing.T) {
 	}
 	h, err := svc.StartRun(ctx, domain.StartRunRequest{
 		ConversationID: conv.ID, Text: "How does a transformer work?",
-		ModelRef: "gpt-test", HarnessID: "chat",
+		ModelRef: "gpt-test", ModeID: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -82,17 +82,17 @@ func TestSeam1ModeInstructionsAreVisualFirst(t *testing.T) {
 			t.Errorf("Mode instructions missing %q from the wire request: %s", phrase, bodies[0])
 		}
 	}
-	// The instruction is shared product text owned by harness and carried by
+	// The instruction is shared product text owned by modes and carried by
 	// the single static system message, so it applies to every Mode without
 	// adding a second system block or changing the cached prefix shape.
-	if !bytes.Contains(bodies[0], []byte(harness.VisualFirstInstructions)) {
+	if !bytes.Contains(bodies[0], []byte(modes.VisualFirstInstructions)) {
 		t.Fatalf("shared visual-first instruction missing from the wire request: %s", bodies[0])
 	}
 	if !bytes.Contains(bodies[0], []byte(ctxlayout.StaticSystemPrompt)) {
 		t.Fatalf("static system instruction missing from the wire request: %s", bodies[0])
 	}
-	if !strings.Contains(harness.VisualFirstInstructions, "render_ui") ||
-		!strings.Contains(harness.VisualFirstInstructions, "create_artifact") {
-		t.Fatal("harness visual-first instruction does not name both visual tools")
+	if !strings.Contains(modes.VisualFirstInstructions, "render_ui") ||
+		!strings.Contains(modes.VisualFirstInstructions, "create_artifact") {
+		t.Fatal("modes visual-first instruction does not name both visual tools")
 	}
 }

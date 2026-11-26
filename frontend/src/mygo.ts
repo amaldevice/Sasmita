@@ -10,7 +10,7 @@ export interface ConversationDTO {
   id: string;
   projectId: string;
   title: string;
-  activeHarnessId: string;
+  activeModeId: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -86,14 +86,14 @@ export interface StartRunRequestDTO {
   conversationId: string;
   text: string;
   modelRef: string;
-  harnessId: string;
+  modeId: string;
 }
 
 // ---- Services ----
 
 export const shellService = {
   cancelRun: bind<[string], void>("shellService.CancelRun", (runID: string) => [runID]),
-  createConversation: bind<[string, string, string], ConversationDTO>("shellService.CreateConversation", (projectID: string, title: string, harnessID: string) => [projectID, title, harnessID]),
+  createConversation: bind<[string, string, string], ConversationDTO>("shellService.CreateConversation", (projectID: string, title: string, modeID: string) => [projectID, title, modeID]),
   getConversation: bind<[string], ConversationDetailDTO>("shellService.GetConversation", (conversationID: string) => [conversationID]),
   getRunSnapshot: bind<[string], RunSnapshotDTO>("shellService.GetRunSnapshot", (runID: string) => [runID]),
   getUIData: bind<[string, number], UIDataDTO>("shellService.GetUIData", (ref: string, limit: number) => [ref, limit]),

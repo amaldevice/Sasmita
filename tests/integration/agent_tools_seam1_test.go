@@ -128,7 +128,7 @@ func TestSeam1ScriptedToolCallKeepsGoldenPrefix(t *testing.T) {
 
 	svc, store, convID := newToolService(t, srv.URL, t.TempDir(), nil)
 	h, err := svc.StartRun(ctx, domain.StartRunRequest{
-		ConversationID: convID, Text: "compute for me", ModelRef: "gpt-test", HarnessID: "chat",
+		ConversationID: convID, Text: "compute for me", ModelRef: "gpt-test", ModeID: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)

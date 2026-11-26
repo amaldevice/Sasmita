@@ -99,7 +99,7 @@ func newApprovalServiceOnDB(t *testing.T, path string, provider model.ModelProvi
 func startUntilApproval(t *testing.T, svc *appsvc.Service) (*appsvc.RunHandle, domain.RunEvent, domain.Approval) {
 	t.Helper()
 	h, err := svc.StartRun(context.Background(), domain.StartRunRequest{
-		ConversationID: "c1", Text: "tulis chart", ModelRef: "fake", HarnessID: "chat",
+		ConversationID: "c1", Text: "tulis chart", ModelRef: "fake", ModeID: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -265,7 +265,7 @@ func TestSeam1AlwaysAllowUsesProjectGrant(t *testing.T) {
 	}
 	provider.calls = 0
 	h2, err := svc.StartRun(context.Background(), domain.StartRunRequest{
-		ConversationID: "c1", Text: "tulis lagi", ModelRef: "fake", HarnessID: "chat",
+		ConversationID: "c1", Text: "tulis lagi", ModelRef: "fake", ModeID: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)

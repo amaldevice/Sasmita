@@ -30,8 +30,8 @@ type shellService struct {
 	live     liveReporter
 }
 
-func (s *shellService) CreateConversation(ctx context.Context, projectID, title, harnessID string) (desktop.ConversationDTO, error) {
-	return s.bindings.CreateConversation(ctx, projectID, title, harnessID)
+func (s *shellService) CreateConversation(ctx context.Context, projectID, title, modeID string) (desktop.ConversationDTO, error) {
+	return s.bindings.CreateConversation(ctx, projectID, title, modeID)
 }
 
 func (s *shellService) ListConversations(ctx context.Context, projectID, cursor string, limit int) (desktop.ConversationPageDTO, error) {

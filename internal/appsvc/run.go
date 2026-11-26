@@ -10,7 +10,7 @@ import (
 	"github.com/amaldevice/sasmita/internal/agent"
 	"github.com/amaldevice/sasmita/internal/domain"
 	"github.com/amaldevice/sasmita/internal/genui"
-	"github.com/amaldevice/sasmita/internal/harness"
+	"github.com/amaldevice/sasmita/internal/modes"
 	"github.com/amaldevice/sasmita/internal/model"
 )
 
@@ -101,7 +101,7 @@ func (s *Service) ResumeRun(ctx context.Context, originalRunID string) (*RunHand
 		ConversationID: original.ConversationID,
 		Text:           text,
 		ModelRef:       original.ModelRef,
-		HarnessID:      original.HarnessID,
+		ModeID:      original.ModeID,
 	}, original.ID)
 }
 
@@ -116,11 +116,11 @@ func (s *Service) start(ctx context.Context, req domain.StartRunRequest, origina
 	if modelRef == "" {
 		modelRef = s.cfg.DefaultModel
 	}
-	modeID := req.HarnessID
+	modeID := req.ModeID
 	if modeID == "" {
-		modeID = defaultHarness
+		modeID = defaultMode
 	}
-	if _, err := harness.Select(modeID); err != nil {
+	if _, err := modes.Select(modeID); err != nil {
 		return nil, err
 	}
 	now := s.cfg.Now()
@@ -129,7 +129,7 @@ func (s *Service) start(ctx context.Context, req domain.StartRunRequest, origina
 		ConversationID: req.ConversationID,
 		Status:         domain.RunQueued,
 		ModelRef:       modelRef,
-		HarnessID:      modeID,
+		ModeID:      modeID,
 		StartedAt:      now,
 		OriginalRunID:  originalRunID,
 	}
@@ -297,7 +297,7 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 	// Active context is a derived view of canonical history: Mode instructions,
 	// provider filtering and compaction never rewrite stored messages. The ADK
 	// agent builds each request from this view plus appended tool pairs.
-	_, view, err := s.activeContext(persistCtx, run.ConversationID, run.HarnessID)
+	_, view, err := s.activeContext(persistCtx, run.ConversationID, run.ModeID)
 	if err != nil {
 		s.fail(ctx, persistCtx, run, stream, err)
 		return
@@ -334,7 +334,7 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 	// is never rewritten (ADR-0001).
 	result, streamErr := s.cfg.Agent.Run(ctx, agent.Request{
 		ConversationID: run.ConversationID, RunID: run.ID, CheckpointID: checkpointID,
-		Mode: run.HarnessID, ProjectID: conv.ProjectID, ScopeRoots: roots,
+		Mode: run.ModeID, ProjectID: conv.ProjectID, ScopeRoots: roots,
 		ModelRef: run.ModelRef, History: view,
 	}, func(sig domain.AgentSignal) {
 		switch sig.Kind {

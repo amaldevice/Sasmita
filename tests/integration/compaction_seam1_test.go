@@ -111,7 +111,7 @@ func TestSeam1AutoCompactionShapeAndAppendOnlyAgain(t *testing.T) {
 	var handles []*appsvc.RunHandle
 	var beforeCompaction []domain.Message
 	for i, question := range questions {
-		h, err := svc.StartRun(ctx, domain.StartRunRequest{ConversationID: conv.ID, Text: question, ModelRef: "gpt-test", HarnessID: "chat"})
+		h, err := svc.StartRun(ctx, domain.StartRunRequest{ConversationID: conv.ID, Text: question, ModelRef: "gpt-test", ModeID: "chat"})
 		if err != nil {
 			t.Fatal(err)
 		}

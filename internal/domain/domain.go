@@ -26,7 +26,7 @@ type Conversation struct {
 	ID              string
 	ProjectID       string
 	Title           string
-	ActiveHarnessID string
+	ActiveModeID string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }
@@ -106,7 +106,7 @@ type Run struct {
 	ConversationID string
 	Status         RunStatus
 	ModelRef       string
-	HarnessID      string
+	ModeID      string
 	StartedAt      time.Time
 	FinishedAt     *time.Time
 	OriginalRunID  string
@@ -130,7 +130,7 @@ type StartRunRequest struct {
 	ConversationID string `json:"conversationId"`
 	Text           string `json:"text"`
 	ModelRef       string `json:"modelRef"`
-	HarnessID      string `json:"harnessId"`
+	ModeID      string `json:"modeId"`
 }
 
 var (
