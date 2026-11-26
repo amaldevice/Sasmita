@@ -133,12 +133,17 @@ func (s *Service) start(ctx context.Context, req domain.StartRunRequest, origina
 		OriginalRunID:  originalRunID,
 	}
 	content := domain.TextContent(req.Text)
-	if s.cfg.ContextNote != nil {
-		if note := strings.TrimSpace(s.cfg.ContextNote()); note != "" {
-			// Dynamic information is a tail context note on the new user turn,
-			// never part of the static system instruction (ADR-0001).
-			content = append(content, domain.ContentPart{Type: "context_note", Text: note})
-		}
+	// Dynamic information is a tail context note on the new user turn, never
+	// part of the static system instruction (ADR-0001). It carries only deltas
+	// since the previous note (GLOSSARY "context note").
+	var note string
+	if s.cfg.NoteSource != nil {
+		note = s.notes.Next(now, s.cfg.NoteSource())
+	} else if s.cfg.ContextNote != nil {
+		note = s.notes.Observe(now, s.cfg.ContextNote())
+	}
+	if note = strings.TrimSpace(note); note != "" {
+		content = append(content, domain.ContentPart{Type: "context_note", Text: note})
 	}
 	userMessage := &domain.Message{
 		ID:             s.cfg.NewID(),
@@ -288,22 +293,14 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 		domain.StatusPayload{Envelope: envelope(), Status: string(domain.RunRunning)})
 	s.emit(persistCtx, stream, run.ID, domain.EventModelRequestStarted, envelope())
 
-	// Full canonical history: no sliding window. Compaction is a separate
-	// ticket and is the only event allowed to change the prefix (ADR-0001).
-	history, err := s.store.ListMessages(persistCtx, run.ConversationID, 0)
+	// Active context is a derived view of canonical history: Mode instructions,
+	// provider filtering and compaction never rewrite stored messages. The ADK
+	// agent builds each request from this view plus appended tool pairs.
+	_, view, err := s.activeContext(persistCtx, run.ConversationID, run.HarnessID)
 	if err != nil {
 		s.fail(ctx, persistCtx, run, stream, err)
 		return
 	}
-	// Active context is a derived view of canonical history: Mode instructions
-	// and provider filtering never rewrite the stored messages. The ADK agent
-	// builds each request from this view plus appended tool pairs.
-	mode, err := harness.Select(run.HarnessID)
-	if err != nil {
-		s.fail(ctx, persistCtx, run, stream, err)
-		return
-	}
-	view := harness.ActiveHistory(history, mode, s.providerKind)
 
 	var full, pending strings.Builder
 	var contentBlocks []json.RawMessage
@@ -367,6 +364,10 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 		s.fail(ctx, persistCtx, run, stream, streamErr)
 		return
 	}
+
+	// Compaction is the only allowed prefix reset; it happens at a safe
+	// boundary after the assistant turn is persisted (ADR-0001, TAD §11.5).
+	s.maybeCompact(persistCtx, stream, run)
 
 	now := s.cfg.Now()
 	_ = s.store.UpdateRunStatus(persistCtx, run.ID, domain.RunCompleted, &now)

@@ -162,6 +162,7 @@ type Bindings interface {
 	GetUsageReport(ctx context.Context) (UsageReportDTO, error)
 	ListModes(ctx context.Context) []ModeDTO
 	EstimateSwitch(ctx context.Context, req SwitchEstimateRequestDTO) (SwitchEstimateDTO, error)
+	CompactConversation(ctx context.Context, conversationID string) (CompactionDTO, error)
 }
 
 // Service adapts the application service to the typed bindings. It is shared
