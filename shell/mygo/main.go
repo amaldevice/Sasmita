@@ -41,13 +41,17 @@ func (s *shellService) GetRunSnapshot(ctx context.Context, runID string) (deskto
 	return s.bindings.GetRunSnapshot(ctx, runID)
 }
 
-// StartRun streams RunEvents through a typed MyGo channel. The method stays
+func (s *shellService) CancelRun(ctx context.Context, runID string) error {
+	return s.bindings.CancelRun(ctx, runID)
+}
+
+func (s *shellService) ListRuns(ctx context.Context, conversationID string) ([]desktop.RunDTO, error) {
+	return s.bindings.ListRuns(ctx, conversationID)
+}
+
+// streamRun forwards RunEvents through a typed MyGo channel. The method stays
 // pending until a terminal event, so the channel is never closed early.
-func (s *shellService) StartRun(ctx context.Context, req desktop.StartRunRequestDTO, events *mygo.Channel[domain.RunEvent]) (string, error) {
-	handle, err := s.bindings.StartRun(ctx, req)
-	if err != nil {
-		return "", err
-	}
+func streamRun(ctx context.Context, handle desktop.RunHandleDTO, events *mygo.Channel[domain.RunEvent]) (string, error) {
 	for {
 		select {
 		case ev, ok := <-handle.Events:
@@ -62,10 +66,29 @@ func (s *shellService) StartRun(ctx context.Context, req desktop.StartRunRequest
 				return handle.RunID, nil
 			}
 		case <-ctx.Done():
-			handle.Cancel()
+			// A disconnected UI must not kill an in-flight run; CancelRun is
+			// the explicit cancellation command (TAD §14.3).
 			return handle.RunID, ctx.Err()
 		}
 	}
+}
+
+// StartRun streams RunEvents through a typed MyGo channel.
+func (s *shellService) StartRun(ctx context.Context, req desktop.StartRunRequestDTO, events *mygo.Channel[domain.RunEvent]) (string, error) {
+	handle, err := s.bindings.StartRun(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return streamRun(ctx, handle, events)
+}
+
+// ResumeRun continues an interrupted run as a new attempt tied to the original.
+func (s *shellService) ResumeRun(ctx context.Context, runID string, events *mygo.Channel[domain.RunEvent]) (string, error) {
+	handle, err := s.bindings.ResumeRun(ctx, runID)
+	if err != nil {
+		return "", err
+	}
+	return streamRun(ctx, handle, events)
 }
 
 func setup(shell *shellService) error {
@@ -107,10 +130,15 @@ func setup(shell *shellService) error {
 		APIKey:     os.Getenv("SASMITA_OPENAI_API_KEY"),
 		ProviderID: "openai",
 	}
-	shell.bindings = desktop.NewService(appsvc.New(store, appsvc.Config{
+	app := appsvc.New(store, appsvc.Config{
 		Provider:     adapter,
 		DefaultModel: modelRef,
-	}))
+	})
+	// Runs left active by a previous process cannot still be executing here.
+	if _, err := app.RecoverStaleRuns(context.Background()); err != nil {
+		return err
+	}
+	shell.bindings = desktop.NewService(app)
 	return nil
 }
 

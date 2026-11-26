@@ -14,6 +14,7 @@ import (
 	"github.com/amaldevice/sasmita/internal/domain"
 	"github.com/amaldevice/sasmita/internal/model"
 	"github.com/amaldevice/sasmita/internal/persistence/repositories"
+	"github.com/amaldevice/sasmita/internal/runtime"
 )
 
 const (
@@ -30,11 +31,13 @@ type Config struct {
 	ContextLimit     int
 	Now              func() time.Time
 	NewID            func() string
+	Runtime          *runtime.Manager
 }
 
 type Service struct {
-	store *repositories.Store
-	cfg   Config
+	store   *repositories.Store
+	cfg     Config
+	runtime *runtime.Manager
 }
 
 func New(store *repositories.Store, cfg Config) *Service {
@@ -53,7 +56,10 @@ func New(store *repositories.Store, cfg Config) *Service {
 	if cfg.NewID == nil {
 		cfg.NewID = randomID
 	}
-	return &Service{store: store, cfg: cfg}
+	if cfg.Runtime == nil {
+		cfg.Runtime = runtime.NewManager()
+	}
+	return &Service{store: store, cfg: cfg, runtime: cfg.Runtime}
 }
 
 func randomID() string {
@@ -102,6 +108,12 @@ func (s *Service) GetConversation(ctx context.Context, id string) (*domain.Conve
 		return nil, err
 	}
 	return &domain.ConversationDetail{Conversation: *conv, Messages: messages}, nil
+}
+
+// ListRuns exposes run lifecycle state so the UI can offer Continue after an
+// interrupted run is recovered at startup.
+func (s *Service) ListRuns(ctx context.Context, conversationID string) ([]domain.Run, error) {
+	return s.store.ListRuns(ctx, conversationID)
 }
 
 // GetRunSnapshot supports reconnect recovery (TAD §14.3).

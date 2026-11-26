@@ -51,7 +51,6 @@ type RunHandleDTO struct {
 	RunID          string
 	ConversationID string
 	Events         <-chan domain.RunEvent
-	Cancel         func()
 	Abort          func()
 }
 
@@ -62,12 +61,25 @@ type RunSnapshotDTO struct {
 	Events []domain.RunEvent `json:"events"`
 }
 
+// RunDTO is the UI-facing lifecycle record used to show interrupted runs and
+// their continue hint (TAD §8.3).
+type RunDTO struct {
+	RunID          string `json:"runId"`
+	ConversationID string `json:"conversationId"`
+	Status         string `json:"status"`
+	Answer         string `json:"answer"`
+	OriginalRunID  string `json:"originalRunId,omitempty"`
+}
+
 // Bindings is the typed IPC surface exposed to the frontend.
 type Bindings interface {
 	CreateConversation(ctx context.Context, projectID, title, harnessID string) (ConversationDTO, error)
 	ListConversations(ctx context.Context, projectID, cursor string, limit int) (ConversationPageDTO, error)
 	GetConversation(ctx context.Context, conversationID string) (ConversationDetailDTO, error)
 	StartRun(ctx context.Context, req StartRunRequestDTO) (RunHandleDTO, error)
+	CancelRun(ctx context.Context, runID string) error
+	ResumeRun(ctx context.Context, runID string) (RunHandleDTO, error)
+	ListRuns(ctx context.Context, conversationID string) ([]RunDTO, error)
 	GetRunSnapshot(ctx context.Context, runID string) (RunSnapshotDTO, error)
 }
 
@@ -132,9 +144,39 @@ func (s *Service) StartRun(ctx context.Context, req StartRunRequestDTO) (RunHand
 		RunID:          handle.RunID,
 		ConversationID: handle.ConversationID,
 		Events:         handle.Events(),
-		Cancel:         handle.Cancel,
 		Abort:          handle.Abort,
 	}, nil
+}
+
+func (s *Service) CancelRun(ctx context.Context, runID string) error {
+	return s.svc.CancelRun(ctx, runID)
+}
+
+func (s *Service) ResumeRun(ctx context.Context, runID string) (RunHandleDTO, error) {
+	handle, err := s.svc.ResumeRun(ctx, runID)
+	if err != nil {
+		return RunHandleDTO{}, err
+	}
+	return RunHandleDTO{
+		RunID:          handle.RunID,
+		ConversationID: handle.ConversationID,
+		Events:         handle.Events(),
+	}, nil
+}
+
+func (s *Service) ListRuns(ctx context.Context, conversationID string) ([]RunDTO, error) {
+	runs, err := s.svc.ListRuns(ctx, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RunDTO, 0, len(runs))
+	for _, run := range runs {
+		out = append(out, RunDTO{
+			RunID: run.ID, ConversationID: run.ConversationID, Status: string(run.Status),
+			OriginalRunID: run.OriginalRunID,
+		})
+	}
+	return out, nil
 }
 
 func (s *Service) GetRunSnapshot(ctx context.Context, runID string) (RunSnapshotDTO, error) {
