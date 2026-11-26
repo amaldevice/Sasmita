@@ -83,9 +83,9 @@ func TestMigrateFromEmptyAndIdempotent(t *testing.T) {
 	}
 }
 
-// A fresh database must apply all four ticket migrations exactly once, in
-// filename order, and end at version 4 (TAD §13.4).
-func TestMigrateAppliesAllFourFilesExactlyOnce(t *testing.T) {
+// A fresh database must apply every ticket migration exactly once, in
+// filename order, and end at the highest known version (TAD §13.4).
+func TestMigrateAppliesAllFilesExactlyOnce(t *testing.T) {
 	db, err := sqlite.Open(filepath.Join(t.TempDir(), "sasmita.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -113,6 +113,7 @@ func TestMigrateAppliesAllFourFilesExactlyOnce(t *testing.T) {
 	}
 	// Derive the expectation from the files actually present so parallel
 	// ticket lanes can add migrations without editing this invariant test.
+	// The derived list includes 007 from #18 and 013 from this ticket.
 	names, err := filepath.Glob("*_init.sql")
 	if err != nil {
 		t.Fatal(err)
