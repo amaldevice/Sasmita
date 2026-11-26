@@ -290,7 +290,7 @@
         {/if}
 
         {#if run.streaming}
-          <Activity status={run.status} cancelling={run.cancelling} onCancel={() => void cancel()} />
+          <Activity status={run.status} cancelling={run.cancelling} steps={run.steps} elapsedSeconds={run.elapsedSeconds} onCancel={() => void cancel()} />
         {/if}
 
         {#if run.usage}
