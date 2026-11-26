@@ -1,0 +1,22 @@
+# Glossary
+
+**Canonical history**: Seluruh pesan dan event tool sebuah conversation, disimpan permanen. Tidak pernah diubah setelah ditulis.
+_Avoid_: memory, context
+
+**Active context**: Isi yang dikirim ke model untuk satu langkah. Turunan dari canonical history, bukan sumber kebenaran.
+_Avoid_: history, prompt
+
+**Context note**: Informasi dinamis (tanggal, task state, hasil retrieval) yang ditempel ke pesan user baru. Setelah terkirim menjadi bagian canonical history dan tidak diubah.
+_Avoid_: system reminder, injected context
+
+**Harness profile**: Lingkungan kerja sebuah run: instruksi, tools, skills, workspace, izin, dan kebijakan context. Model hanya salah satu field-nya.
+_Avoid_: agent, mode
+
+**UI block** (Tier 1): Visual inline yang dideskripsikan sebagai data deklaratif dan dirender oleh komponen milik Sasmita.
+_Avoid_: widget, GenUI component
+
+**Sandboxed artifact** (Tier 2): Kode HTML/JS buatan model yang dijalankan terisolasi dari aplikasi, tanpa akses ke data atau kemampuan desktop.
+_Avoid_: preview, app, canvas
+
+**Compaction**: Penggantian bagian lama canonical history di active context dengan ringkasan terstruktur, dipicu saat mendekati batas budget.
+_Avoid_: truncation, sliding window
