@@ -1,0 +1,60 @@
+[
+  {
+    "runId": "RUN_ID",
+    "seq": 1,
+    "type": "run.queued",
+    "timestamp": "2026-11-26T10:00:00.000Z",
+    "payload": { "version": 1, "status": "queued" }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 2,
+    "type": "run.started",
+    "timestamp": "2026-11-26T10:00:00.010Z",
+    "payload": { "version": 1, "status": "running" }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 3,
+    "type": "ui.block",
+    "timestamp": "2026-11-26T10:00:00.500Z",
+    "payload": {
+      "version": 1,
+      "schemaVersion": "sasmita.ui/v1",
+      "blockId": "uib_demo",
+      "spec": {
+        "schemaVersion": "sasmita.ui/v1",
+        "blockId": "uib_demo",
+        "kind": "interactive",
+        "title": "Rounding explorer",
+        "summary": "Compare deterministic and stochastic rounding.",
+        "state": { "resolution": "cell", "threshold": 76, "showErrors": false },
+        "data": { "grid": { "source": "artifact://grid-1", "encoding": "application/json" } },
+        "components": [
+          { "id": "resolution", "type": "tabs", "label": "Resolution", "bind": "state.resolution", "options": ["sample", "cell"] },
+          { "id": "threshold", "type": "slider", "label": "Threshold", "bind": "state.threshold", "min": 0, "max": 100, "step": 1 },
+          { "id": "show-errors", "type": "toggle", "label": "Show errors", "bind": "state.showErrors" },
+          { "id": "err-chart", "type": "chart", "label": "Error by threshold", "values": [{ "label": "0", "value": 1 }, { "label": "1", "value": 4 }, { "label": "2", "value": 9 }] },
+          { "id": "samples", "type": "table", "label": "Samples", "dataRef": "data.grid" },
+          { "id": "flow", "type": "mermaid", "label": "Flow", "source": "A[Start] --> B[Round] --> C[End]" },
+          { "id": "metrics", "type": "kpi", "label": "Summary", "values": [{ "label": "Bias", "value": "0.11" }, { "label": "Latency", "value": "12 ms" }] },
+          { "id": "formula", "type": "math", "label": "Formula", "source": "E = mc^2" }
+        ]
+      }
+    }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 4,
+    "type": "model.text_delta",
+    "timestamp": "2026-11-26T10:00:00.800Z",
+    "payload": { "version": 1, "text": "Lihat visual berikut." }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 5,
+    "type": "run.completed",
+    "timestamp": "2026-11-26T10:00:01.000Z",
+    "payload": { "version": 1, "status": "completed" }
+  }
+]

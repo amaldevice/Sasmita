@@ -9,6 +9,7 @@ import (
 
 	"github.com/amaldevice/sasmita/internal/agent"
 	"github.com/amaldevice/sasmita/internal/domain"
+	"github.com/amaldevice/sasmita/internal/genui"
 	"github.com/amaldevice/sasmita/internal/harness"
 	"github.com/amaldevice/sasmita/internal/model"
 )
@@ -304,6 +305,7 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 
 	var full, pending strings.Builder
 	var contentBlocks []json.RawMessage
+	var uiBlocks []json.RawMessage
 	flush := func() {
 		if pending.Len() == 0 {
 			return
@@ -330,6 +332,11 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 			s.emitToolSignal(persistCtx, stream, run.ID, sig)
 		case domain.AgentToolPair:
 			s.appendToolPair(persistCtx, run, sig.Tool)
+		case domain.AgentUIBlock:
+			s.emitUIBlock(persistCtx, stream, run.ID, sig.UI)
+			if sig.UI != nil && len(sig.UI.Spec) > 0 {
+				uiBlocks = append(uiBlocks, uiBlockContent(*sig.UI))
+			}
 		}
 	})
 	flush()
@@ -342,7 +349,7 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 		s.emit(persistCtx, stream, run.ID, domain.EventModelUsage,
 			domain.UsagePayload{Envelope: envelope(), Usage: toDomainUsage(*result.Usage)})
 	}
-	contentBlocks = result.Blocks
+	contentBlocks = append(result.Blocks, uiBlocks...)
 
 	if full.Len() > 0 || len(contentBlocks) > 0 {
 		s.persistAssistant(persistCtx, run, full.String(), contentBlocks)
@@ -483,6 +490,58 @@ func (s *Service) appendToolPair(ctx context.Context, run *domain.Run, activity 
 			Role: domain.RoleUser, Content: parts, CreatedAt: now,
 		})
 	}
+}
+
+// emitUIBlock persists the validated spec as a versioned RunEvent so a reload
+// can re-render the block from stored spec and artifact references.
+func (s *Service) emitUIBlock(ctx context.Context, stream *eventStream, runID string, block *domain.UIBlockSignal) {
+	if block == nil {
+		return
+	}
+	payload := genui.BlockEvent{
+		SchemaVersion: genui.SchemaVersion, BlockID: block.BlockID,
+		Spec: block.Spec, Reason: block.Reason,
+	}
+	_ = s.emit(ctx, stream, runID, domain.EventUIBlock, payload)
+}
+
+func uiBlockContent(block domain.UIBlockSignal) json.RawMessage {
+	encoded, _ := model.MarshalDeterministic(struct {
+		Type    string          `json:"type"`
+		BlockID string          `json:"blockId"`
+		Spec    json.RawMessage `json:"spec,omitempty"`
+		Reason  string          `json:"reason,omitempty"`
+	}{Type: "ui_block", BlockID: block.BlockID, Spec: block.Spec, Reason: block.Reason})
+	return encoded
+}
+
+// SaveUIState appends a small, user-committed state patch. It validates keys
+// against the stored spec when available and never treats a patch as a tool
+// call or a model request.
+func (s *Service) SaveUIState(ctx context.Context, runID, blockID string, patch json.RawMessage) error {
+	if len(patch) == 0 || len(patch) > genui.MaxPatchBytes {
+		return domain.ErrInvalidArgument
+	}
+	if s.genui != nil {
+		if stored, ok := s.genui.Get(blockID); ok {
+			var spec genui.Spec
+			if err := json.Unmarshal(stored, &spec); err != nil {
+				return domain.ErrInvalidArgument
+			}
+			if err := genui.ValidatePatch(patch, spec); err != nil {
+				return err
+			}
+		}
+	}
+	payload := genui.UIStateEvent{
+		SchemaVersion: genui.SchemaVersion, BlockID: blockID, RunID: runID, Patch: patch,
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	_, err = s.store.AppendRunEvent(ctx, runID, domain.EventUIState, raw)
+	return err
 }
 
 func rawParts(blocks []json.RawMessage) []domain.ContentPart {
