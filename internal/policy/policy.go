@@ -104,6 +104,13 @@ func (e *Engine) Evaluate(req Request, hasGrant bool) Decision {
 		return d(Allow, "validated declarative block", "Menampilkan visual", "blok UI di percakapan ini", "Spesifikasi divalidasi; komponen asing atau rusak ditolak menjadi teks.")
 	case "load_skill":
 		return d(Allow, "bounded catalog read", "Membaca keterampilan", "katalog keterampilan proyek", "Hanya membaca petunjuk; tidak menjalankan kode atau mengubah berkas.")
+	case "find_tools":
+		return d(Allow, "local index read", "Mencari tool", "indeks tool lokal", "Hanya membaca nama, deskripsi dan schema; tidak mengubah daftar tool.")
+	case "query_table":
+		return d(Allow, "bounded inline aggregate", "Menghitung tabel", "baris yang dikirim dalam argumen", "Hanya menghitung nilai yang diberikan; tidak membaca berkas atau jaringan.")
+	case "call_tool":
+		// The loop resolves this envelope to the real tool ID before policy.
+		return d(Deny, "meta-tool must be resolved to a real tool ID", "Menjalankan tool", req.ToolID, "Ditolak: keputusan harus diambil pada tool yang sebenarnya.")
 	case "create_artifact", "edit_artifact", "rewrite_artifact":
 		resource := strings.TrimSpace(args.ID)
 		if resource == "" {

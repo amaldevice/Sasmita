@@ -107,6 +107,35 @@ func New(cfg Config) *Registry {
 // the provider request layout stays deterministic (ADR-0001).
 func (r *Registry) Register(t Tool) { r.register(t) }
 
+// RegisterDiscovery makes a tool executable through call_tool without adding
+// its schema to the frozen provider tool list (ADR-0003). It is promoted to a
+// native definition only at compaction.
+func (r *Registry) RegisterDiscovery(t Tool) {
+	spec := t.Spec()
+	if spec.Timeout <= 0 {
+		spec.Timeout = defaultTimeout
+	}
+	if spec.MaxOutputBytes <= 0 || spec.MaxOutputBytes > r.outputCap {
+		spec.MaxOutputBytes = r.outputCap
+	}
+	r.tools[spec.Name] = &boundedTool{tool: t, spec: spec}
+}
+
+// EnabledSpecs returns every executable tool in deterministic name order,
+// including discovery-only tools that are not in the frozen Definitions.
+func (r *Registry) EnabledSpecs() []Spec {
+	names := make([]string, 0, len(r.tools))
+	for name := range r.tools {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	specs := make([]Spec, 0, len(names))
+	for _, name := range names {
+		specs = append(specs, r.tools[name].spec)
+	}
+	return specs
+}
+
 func (r *Registry) register(t Tool) {
 	spec := t.Spec()
 	if spec.Timeout <= 0 {

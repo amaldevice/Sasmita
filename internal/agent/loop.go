@@ -11,8 +11,10 @@ import (
 
 	"github.com/cloudwego/eino/adk"
 
+	ctxlayout "github.com/amaldevice/sasmita/internal/context"
 	"github.com/amaldevice/sasmita/internal/domain"
 	"github.com/amaldevice/sasmita/internal/model"
+	"github.com/amaldevice/sasmita/internal/tools"
 )
 
 // loopAgent is an ADK Agent implementation that runs the app-owned provider
@@ -23,6 +25,7 @@ type loopAgent struct {
 	req     Request
 	emit    func(domain.AgentSignal)
 	working []domain.Message
+	builder ctxlayout.Builder
 }
 
 func (l *loopAgent) Name(context.Context) string { return "sasmita.agent" }
@@ -58,7 +61,7 @@ func (l *loopAgent) execute(ctx context.Context, emit func(domain.AgentSignal)) 
 		if err := ctx.Err(); err != nil {
 			return result, err
 		}
-		request := l.engine.builder.Build(l.req.ConversationID, l.req.ModelRef, l.req.RunID, l.working)
+		request := l.builder.Build(l.req.ConversationID, l.req.ModelRef, l.req.RunID, l.working)
 		var calls []model.ToolCall
 		var blocks []json.RawMessage
 		var text strings.Builder
@@ -118,16 +121,33 @@ func (l *loopAgent) dispatchCalls(ctx context.Context, calls []model.ToolCall, b
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		// A meta-tool call is resolved to the real tool before policy, approval
+		// and execution. The assistant block stays the envelope the model sent.
+		effective := call
+		viaMeta := false
+		var err error
+		if call.Name == "call_tool" && l.engine.cfg.Discovery != nil {
+			var real model.ToolCall
+			real, err = l.engine.cfg.Discovery.Resolve(call)
+			if err != nil {
+				activity := domain.ToolActivity{CallID: call.ID, Name: call.Name, Executed: false, Error: err.Error()}
+				emit(domain.AgentSignal{Kind: domain.AgentToolFailed, Tool: activity})
+				resultBlocks = append(resultBlocks, toolResultBlock(call.ID, "error: "+err.Error()))
+				continue
+			}
+			effective, viaMeta = real, true
+			l.engine.cfg.Discovery.Note(l.req.ConversationID, real.Name)
+		}
 		risk := "unknown"
 		if l.engine.cfg.Tools != nil {
-			if spec, ok := l.engine.cfg.Tools.Spec(call.Name); ok {
+			if spec, ok := l.engine.cfg.Tools.Spec(effective.Name); ok {
 				risk = string(spec.Risk)
 			}
 		}
 		emit(domain.AgentSignal{
 			Kind: domain.AgentToolProposed,
 			Tool: domain.ToolActivity{
-				CallID: call.ID, Name: call.Name, Risk: risk, Input: call.Input,
+				CallID: call.ID, Name: effective.Name, Risk: risk, Input: effective.Input,
 				Executed: false,
 			},
 		})
@@ -139,9 +159,9 @@ func (l *loopAgent) dispatchCalls(ctx context.Context, calls []model.ToolCall, b
 			l.saveCheckpoint(ctx)
 			verdict, err := gate.Authorize(ctx, ApprovalRequest{
 				RunID: l.req.RunID, CheckpointID: l.checkpointID(),
-				ConversationID: l.req.ConversationID, CallID: call.ID, ToolID: call.Name,
+				ConversationID: l.req.ConversationID, CallID: call.ID, ToolID: effective.Name,
 				Mode: l.req.Mode, ProjectID: l.req.ProjectID,
-				Arguments: call.Input, ScopeRoots: l.req.ScopeRoots,
+				Arguments: effective.Input, ScopeRoots: l.req.ScopeRoots,
 				OnPending: func(a *domain.Approval) error {
 					emit(domain.AgentSignal{Kind: domain.AgentApprovalRequired, Approval: a})
 					return nil
@@ -156,7 +176,7 @@ func (l *loopAgent) dispatchCalls(ctx context.Context, calls []model.ToolCall, b
 					reason = "tool was not approved"
 				}
 				activity := domain.ToolActivity{
-					CallID: call.ID, Name: call.Name, Risk: risk, Input: call.Input,
+					CallID: call.ID, Name: effective.Name, Risk: risk, Input: effective.Input,
 					Executed: false, Error: reason,
 				}
 				emit(domain.AgentSignal{Kind: domain.AgentToolDenied, Tool: activity})
@@ -166,9 +186,14 @@ func (l *loopAgent) dispatchCalls(ctx context.Context, calls []model.ToolCall, b
 		}
 
 		started := time.Now()
-		out, err := l.engine.cfg.Tools.Execute(ctx, call)
+		var out tools.Result
+		if viaMeta {
+			out, err = l.engine.cfg.Discovery.Call(ctx, effective)
+		} else {
+			out, err = l.engine.cfg.Tools.Execute(ctx, call)
+		}
 		activity := domain.ToolActivity{
-			CallID: call.ID, Name: call.Name, Risk: risk, Input: call.Input,
+			CallID: call.ID, Name: effective.Name, Risk: risk, Input: effective.Input,
 			Executed: err == nil, DurationMS: time.Since(started).Milliseconds(),
 		}
 		if err != nil {
@@ -184,7 +209,7 @@ func (l *loopAgent) dispatchCalls(ctx context.Context, calls []model.ToolCall, b
 		} else {
 			emit(domain.AgentSignal{Kind: domain.AgentToolExecuted, Tool: activity})
 		}
-		if call.Name == "render_ui" {
+		if effective.Name == "render_ui" {
 			l.emitUIBlock(out.Output, emit)
 		}
 		content := out.Output

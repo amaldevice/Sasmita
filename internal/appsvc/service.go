@@ -21,6 +21,7 @@ import (
 	"github.com/amaldevice/sasmita/internal/policy"
 	"github.com/amaldevice/sasmita/internal/runtime"
 	"github.com/amaldevice/sasmita/internal/tools"
+	"github.com/amaldevice/sasmita/internal/tools/discovery"
 	"github.com/amaldevice/sasmita/internal/usage"
 )
 
@@ -77,6 +78,7 @@ type Service struct {
 	approvals    *runtime.ApprovalCoordinator
 	providerKind domain.ProviderKind
 	genui        *genui.Store
+	discovery    *discovery.Service
 }
 
 func New(store *repositories.Store, cfg Config) *Service {
@@ -99,6 +101,7 @@ func New(store *repositories.Store, cfg Config) *Service {
 		cfg.Approvals = runtime.NewApprovalCoordinator(store, cfg.Policy)
 	}
 	var gen *genui.Store
+	var disc *discovery.Service
 	if cfg.Agent == nil {
 		var registry *tools.Registry
 		if cfg.EnableTools {
@@ -112,11 +115,15 @@ func New(store *repositories.Store, cfg Config) *Service {
 			gen = genui.NewStore()
 			registry.Register(genui.NewRenderTool(gen))
 			registry.Register(genui.NewSkillTool())
+			// Meta-tools join the frozen list before it is captured; query_table
+			// is discovery-only and becomes native only at compaction.
+			disc = discovery.New(registry, discovery.DispatcherConfig{})
 			cfg.Tools = registry.Definitions()
 		}
 		cfg.Agent = agent.New(agent.Config{
 			Provider: cfg.Provider, Tools: registry, GenUI: gen, NewID: cfg.NewID,
 			States: store, Approvals: approvalGateAdapter{coordinator: cfg.Approvals},
+			Discovery: disc,
 		})
 	}
 	// Freeze tools for the lifetime of the service (one conversation per run).
@@ -148,6 +155,7 @@ func New(store *repositories.Store, cfg Config) *Service {
 		approvals:    cfg.Approvals,
 		providerKind: kind,
 		genui:        gen,
+		discovery:    disc,
 	}
 }
 

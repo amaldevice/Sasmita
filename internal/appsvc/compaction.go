@@ -82,6 +82,11 @@ func (s *Service) compact(ctx context.Context, conversationID, modelRef, runID, 
 	if err != nil {
 		return nil, err
 	}
+	// Compaction is the only point where the tool list may change. Tools used
+	// through call_tool become native definitions for the next run.
+	if s.discovery != nil {
+		s.discovery.Promote(conversationID)
+	}
 	return &record, nil
 }
 
