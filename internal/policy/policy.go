@@ -86,6 +86,7 @@ func (e *Engine) Evaluate(req Request, hasGrant bool) Decision {
 	var args struct {
 		Path      string `json:"path"`
 		Name      string `json:"name"`
+		ID        string `json:"id"`
 		Overwrite bool   `json:"overwrite"`
 		Command   string `json:"command"`
 	}
@@ -99,6 +100,19 @@ func (e *Engine) Evaluate(req Request, hasGrant bool) Decision {
 		return d(Allow, "bounded arithmetic", "Menghitung", "ekspresi aritmetika", "Hanya menghasilkan angka; tidak menyentuh berkas atau jaringan.")
 	case "search":
 		return d(Allow, "bounded read", "Mencari", "riwayat percakapan dan berkas proyek", "Hanya membaca; hasil dibatasi jumlah dan ukurannya.")
+	case "render_ui":
+		return d(Allow, "validated declarative block", "Menampilkan visual", "blok UI di percakapan ini", "Spesifikasi divalidasi; komponen asing atau rusak ditolak menjadi teks.")
+	case "load_skill":
+		return d(Allow, "bounded catalog read", "Membaca keterampilan", "katalog keterampilan proyek", "Hanya membaca petunjuk; tidak menjalankan kode atau mengubah berkas.")
+	case "create_artifact", "edit_artifact", "rewrite_artifact":
+		resource := strings.TrimSpace(args.ID)
+		if resource == "" {
+			resource = strings.TrimSpace(args.Name)
+		}
+		if resource == "" {
+			resource = "artifact baru"
+		}
+		return d(Allow, "new immutable artifact version", "Menyimpan versi artifact", resource, "Membuat versi baru yang tidak dapat diubah; versi lama tetap tersimpan.")
 	case "read_project_file":
 		path := strings.TrimSpace(args.Path)
 		if path == "" {

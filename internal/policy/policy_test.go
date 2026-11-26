@@ -35,6 +35,21 @@ func TestDefaultMatrixEvaluatesToolArgumentsScopeAndMode(t *testing.T) {
 			want: policy.Deny,
 		},
 		{
+			name: "validated UI block renders without approval",
+			req:  policy.Request{ToolID: "render_ui", Arguments: []byte(`{"schemaVersion":"sasmita.ui/v1"}`), Mode: policy.ModeChat, Scope: policy.Scope{Roots: []string{root}}},
+			want: policy.Allow,
+		},
+		{
+			name: "loading a skill reads only the catalog",
+			req:  policy.Request{ToolID: "load_skill", Arguments: []byte(`{"name":"rounding"}`), Mode: policy.ModeChat},
+			want: policy.Allow,
+		},
+		{
+			name: "immutable artifact edit is reversible",
+			req:  policy.Request{ToolID: "edit_artifact", Arguments: []byte(`{"id":"art-1","edits":[]}`), Mode: policy.ModeChat},
+			want: policy.Allow,
+		},
+		{
 			name: "create artifact is reversible",
 			req:  policy.Request{ToolID: "write_artifact", Arguments: []byte(`{"name":"chart","content":"x"}`), Mode: policy.ModeChat, Scope: policy.Scope{Roots: []string{root}}},
 			want: policy.Allow,
