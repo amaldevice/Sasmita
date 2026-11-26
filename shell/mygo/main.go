@@ -1,0 +1,130 @@
+// Command sasmita-desktop is the MyGo shell. Every call into the application
+// goes through desktop.Bindings; swapping to the Wails-v3 fallback means
+// replacing this module only.
+package main
+
+import (
+	"context"
+	"errors"
+	"log"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/amaldevice/sasmita/internal/appsvc"
+	"github.com/amaldevice/sasmita/internal/desktop"
+	"github.com/amaldevice/sasmita/internal/domain"
+	"github.com/amaldevice/sasmita/internal/model/adapters/openai"
+	"github.com/amaldevice/sasmita/internal/persistence/migrations"
+	"github.com/amaldevice/sasmita/internal/persistence/repositories"
+	"github.com/amaldevice/sasmita/internal/persistence/sqlite"
+	"github.com/egoist/mygo"
+)
+
+type shellService struct {
+	bindings *desktop.Service
+}
+
+func (s *shellService) CreateConversation(ctx context.Context, projectID, title, harnessID string) (desktop.ConversationDTO, error) {
+	return s.bindings.CreateConversation(ctx, projectID, title, harnessID)
+}
+
+func (s *shellService) ListConversations(ctx context.Context, projectID, cursor string, limit int) (desktop.ConversationPageDTO, error) {
+	return s.bindings.ListConversations(ctx, projectID, cursor, limit)
+}
+
+func (s *shellService) GetConversation(ctx context.Context, conversationID string) (desktop.ConversationDetailDTO, error) {
+	return s.bindings.GetConversation(ctx, conversationID)
+}
+
+func (s *shellService) GetRunSnapshot(ctx context.Context, runID string) (desktop.RunSnapshotDTO, error) {
+	return s.bindings.GetRunSnapshot(ctx, runID)
+}
+
+// StartRun streams RunEvents through a typed MyGo channel. The method stays
+// pending until a terminal event, so the channel is never closed early.
+func (s *shellService) StartRun(ctx context.Context, req desktop.StartRunRequestDTO, events *mygo.Channel[domain.RunEvent]) (string, error) {
+	handle, err := s.bindings.StartRun(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	for {
+		select {
+		case ev, ok := <-handle.Events:
+			if !ok {
+				return handle.RunID, nil
+			}
+			if err := events.Send(ev); err != nil {
+				handle.Abort()
+				return handle.RunID, err
+			}
+			if ev.Type == domain.EventRunCompleted || ev.Type == domain.EventRunFailed || ev.Type == domain.EventRunCancelled {
+				return handle.RunID, nil
+			}
+		case <-ctx.Done():
+			handle.Cancel()
+			return handle.RunID, ctx.Err()
+		}
+	}
+}
+
+func setup(shell *shellService) error {
+	dbPath := os.Getenv("SASMITA_DB_PATH")
+	if dbPath == "" {
+		dir, err := os.UserConfigDir()
+		if err != nil {
+			return err
+		}
+		dbPath = filepath.Join(dir, "Sasmita", "sasmita.db")
+	}
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
+		return err
+	}
+	db, err := sqlite.Open(dbPath)
+	if err != nil {
+		return err
+	}
+	if err := migrations.Migrate(db); err != nil {
+		return err
+	}
+	store := repositories.New(db)
+	now := time.Now()
+	// v1 has a single default Mode workspace; later tickets add project UI.
+	_ = store.CreateProject(context.Background(), &domain.Project{
+		ID: "p1", Name: "Default", CreatedAt: now, UpdatedAt: now,
+	})
+
+	baseURL := os.Getenv("SASMITA_OPENAI_BASE_URL")
+	if baseURL == "" {
+		return errors.New("SASMITA_OPENAI_BASE_URL is required")
+	}
+	modelRef := os.Getenv("SASMITA_MODEL")
+	if modelRef == "" {
+		modelRef = "gpt-4o-mini"
+	}
+	adapter := openai.Adapter{
+		BaseURL:    baseURL,
+		APIKey:     os.Getenv("SASMITA_OPENAI_API_KEY"),
+		ProviderID: "openai",
+	}
+	shell.bindings = desktop.NewService(appsvc.New(store, appsvc.Config{
+		Provider:     adapter,
+		DefaultModel: modelRef,
+	}))
+	return nil
+}
+
+func main() {
+	shell := &shellService{}
+	mygo.Bind(shell)
+	mygo.App.WhenReady(func() {
+		if err := setup(shell); err != nil {
+			log.Printf("Sasmita setup failed: %v", err)
+			return
+		}
+		mygo.NewWindow(mygo.WindowOptions{Title: "Sasmita", URL: "/"})
+	})
+	if err := mygo.App.Run(); err != nil {
+		log.Fatal(err)
+	}
+}

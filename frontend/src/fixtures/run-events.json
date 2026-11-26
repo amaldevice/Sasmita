@@ -1,0 +1,61 @@
+[
+  {
+    "runId": "RUN_ID",
+    "seq": 1,
+    "type": "run.queued",
+    "timestamp": "2026-11-26T10:00:00Z",
+    "payload": { "version": 1, "status": "queued" }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 2,
+    "type": "run.started",
+    "timestamp": "2026-11-26T10:00:00.010Z",
+    "payload": { "version": 1, "status": "running" }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 3,
+    "type": "model.request_started",
+    "timestamp": "2026-11-26T10:00:00.020Z",
+    "payload": { "version": 1 }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 4,
+    "type": "model.text_delta",
+    "timestamp": "2026-11-26T10:00:00.040Z",
+    "payload": { "version": 1, "text": "A context note is " }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 5,
+    "type": "model.text_delta",
+    "timestamp": "2026-11-26T10:00:00.080Z",
+    "payload": { "version": 1, "text": "information that changed since the previous note." }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 6,
+    "type": "model.usage",
+    "timestamp": "2026-11-26T10:00:00.100Z",
+    "payload": {
+      "version": 1,
+      "usage": {
+        "providerId": "openai",
+        "modelId": "gpt-test",
+        "inputTokens": 12,
+        "outputTokens": 5,
+        "cacheReadTokens": 3,
+        "estimated": false
+      }
+    }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 7,
+    "type": "run.completed",
+    "timestamp": "2026-11-26T10:00:00.120Z",
+    "payload": { "version": 1, "status": "completed" }
+  }
+]
