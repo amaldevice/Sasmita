@@ -1,14 +1,24 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import Activity from './lib/Activity.svelte';
   import Composer from './lib/Composer.svelte';
   import Connections from './lib/Connections.svelte';
+  import EmptyState from './lib/EmptyState.svelte';
+  import InterruptedRun from './lib/InterruptedRun.svelte';
   import Icon from './lib/Icon.svelte';
+  import Onboarding from './lib/Onboarding.svelte';
   import Sidebar from './lib/Sidebar.svelte';
   import { i18n } from './lib/i18n.svelte';
   import { createIPC, type IPC } from './lib/ipc';
+  import {
+    completeOnboarding,
+    createOnboardingIPC,
+    shouldShowOnboarding,
+    type ExamplePrompt,
+  } from './lib/onboarding';
   import { ChatRun } from './lib/run.svelte';
   import { theme } from './lib/theme.svelte';
-  import type { Conversation, ConversationDetail, Project, SearchResult, ShellView } from './lib/types';
+  import type { Conversation, ConversationDetail, Project, RunRecord, SearchResult, ShellView } from './lib/types';
 
   let ipc = $state<IPC | null>(null);
   let conversations = $state<Conversation[]>([]);
@@ -17,6 +27,16 @@
   let detail = $state<ConversationDetail | null>(null);
   let draft = $state('');
   let run = $state(new ChatRun());
+  let runs = $state<RunRecord[]>([]);
+  let interrupted = $derived.by(() => {
+    const stale = runs.find(
+      (record) => record.conversationId === selectedId && record.status === 'interrupted',
+    );
+    // Once a retry is tied to the original run, Continue is no longer offered.
+    if (!stale || runs.some((record) => record.originalRunId === stale.runId)) return null;
+    return stale;
+  });
+
   let showConnections = $state(false);
   let collapsed = $state(false);
   let view = $state<ShellView>('chat');
@@ -27,6 +47,8 @@
   let renameDraft = $state('');
   let moving = $state(false);
   let moveProject = $state('');
+  let showOnboarding = $state(false);
+  let examplePrompts = $state<ExamplePrompt[]>([]);
 
   // A conversation without a project has no root_uri, so no folder action.
   let hasFolder = $derived.by(() => {
@@ -38,10 +60,14 @@
 
   onMount(async () => {
     ipc = createIPC();
-    const [recent, projectList] = await Promise.all([
+    const onboarding = createOnboardingIPC();
+    const [recent, projectList, prompts] = await Promise.all([
       ipc.listRecentConversations('', 50),
       ipc.listProjects(),
+      onboarding.listExamplePrompts(),
     ]);
+    examplePrompts = prompts;
+    showOnboarding = shouldShowOnboarding();
     conversations = recent.items;
     projects = projectList;
     if (conversations.length === 0) {
@@ -52,14 +78,22 @@
     selectedId = first.id;
     detail = await ipc.getConversation(first.id);
     moveProject = detail.conversation.projectId;
+    await refreshRuns();
   });
 
+  async function refreshRuns() {
+    if (!ipc || !selectedId) return;
+    runs = await ipc.listRuns(selectedId);
+  }
+
   // On terminal, reload canonical history from the typed binding so the
-  // streamed answer is replaced by the persisted message.
+  // streamed answer is replaced by the persisted message. Run state is also
+  // refreshed so a recovered run can offer Continue.
   $effect(() => {
     if (ipc && run.runId && !run.streaming) {
       const id = selectedId;
       void ipc.getConversation(id).then((loaded) => { detail = loaded; });
+      void refreshRuns();
     }
   });
 
@@ -77,6 +111,21 @@
     moveProject = detail.conversation.projectId;
     renaming = false;
     moving = false;
+    await refreshRuns();
+  }
+
+  async function cancel() {
+    if (!ipc || !run.runId) return;
+    await ipc.cancelRun(run.runId);
+  }
+
+  async function continueRun() {
+    if (!ipc || !interrupted) return;
+    const original = interrupted;
+    run.begin();
+    const handle = await ipc.resumeRun(original.runId, (event) => run.apply(event));
+    run.setRunId(handle.runId);
+    await refreshRuns();
   }
 
   async function newChat() {
@@ -214,11 +263,12 @@
       {/if}
 
       <div class="thread" data-testid="thread">
+        {#if interrupted}
+          <InterruptedRun run={interrupted} onContinue={() => void continueRun()} />
+        {/if}
+
         {#if detail?.messages.length === 0 && !run.answer}
-          <div class="empty">
-            <h2>{i18n.t('startConversation')}</h2>
-            <p>{i18n.t('askFirst')}</p>
-          </div>
+          <EmptyState prompts={examplePrompts} onsuggest={(text) => void send(text)} />
         {/if}
 
         {#each detail?.messages ?? [] as message (message.id)}
@@ -237,8 +287,10 @@
             <div class="role">Sasmita</div>
             <p>{run.answer}</p>
           </article>
-        {:else if run.streaming}
-          <div class="activity" data-testid="run-status">{i18n.t('working')}</div>
+        {/if}
+
+        {#if run.streaming}
+          <Activity status={run.status} cancelling={run.cancelling} onCancel={() => void cancel()} />
         {/if}
 
         {#if run.usage}
@@ -319,6 +371,10 @@
       </section>
     {/if}
   </main>
+
+  {#if showOnboarding}
+    <Onboarding onDone={() => { completeOnboarding(); showOnboarding = false; }} />
+  {/if}
 </div>
 
 <style>
@@ -342,14 +398,11 @@
   }
   .inline-edit button, .search-form button { padding: 8px 14px; border-radius: 6px; background: var(--raise); color: var(--text); }
   .thread { flex: 1; overflow-y: auto; padding: 24px; }
-  .empty { margin: 15vh auto 0; max-width: 70ch; text-align: center; color: var(--mute); }
-  .empty h2 { margin-bottom: 8px; color: var(--text); font-size: 24px; font-weight: 600; }
   .message { max-width: 760px; margin: 0 0 20px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
   .message.user { margin-left: auto; background: var(--raise); }
   .message.streaming { border-color: var(--flow); }
   .role { margin-bottom: 6px; color: var(--mute); font-size: 12px; }
   .message p { white-space: pre-wrap; line-height: 1.6; }
-  .activity { color: var(--mute); font-size: 14px; }
   .usage { margin: -8px 0 16px; color: var(--mute); font-size: 12px; }
   .error { color: var(--attn); }
   .panel > :global(form.composer) { margin: 0 24px 24px; }

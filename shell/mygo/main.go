@@ -46,6 +46,14 @@ func (s *shellService) GetRunSnapshot(ctx context.Context, runID string) (deskto
 	return s.bindings.GetRunSnapshot(ctx, runID)
 }
 
+func (s *shellService) CancelRun(ctx context.Context, runID string) error {
+	return s.bindings.CancelRun(ctx, runID)
+}
+
+func (s *shellService) ListRuns(ctx context.Context, conversationID string) ([]desktop.RunDTO, error) {
+	return s.bindings.ListRuns(ctx, conversationID)
+}
+
 // Connection commands. Keys are accepted here only to be handed to the keychain
 // through the application service; they never appear in a response DTO.
 func (s *shellService) AddProviderProfile(ctx context.Context, req desktop.AddProviderProfileRequestDTO) (desktop.ProviderProfileDTO, error) {
@@ -72,6 +80,16 @@ func (s *shellService) TestConnection(ctx context.Context, profileID string) (de
 	return s.bindings.TestConnection(ctx, profileID)
 }
 
+// Onboarding commands. Detection uses a short protocol-aware probe; example
+// prompts are static data from internal/onboarding.
+func (s *shellService) ListExamplePrompts(ctx context.Context) []desktop.ExamplePromptDTO {
+	return s.bindings.ListExamplePrompts(ctx)
+}
+
+func (s *shellService) DetectLocalEndpoints(ctx context.Context) ([]desktop.LocalEndpointDTO, error) {
+	return s.bindings.DetectLocalEndpoints(ctx)
+}
+
 func (s *shellService) RenameConversation(ctx context.Context, conversationID, title string) (desktop.ConversationDTO, error) {
 	return s.bindings.RenameConversation(ctx, conversationID, title)
 }
@@ -88,13 +106,9 @@ func (s *shellService) ListProjects(ctx context.Context) ([]desktop.ProjectDTO, 
 	return s.bindings.ListProjects(ctx)
 }
 
-// StartRun streams RunEvents through a typed MyGo channel. The method stays
+// streamRun forwards RunEvents through a typed MyGo channel. The method stays
 // pending until a terminal event, so the channel is never closed early.
-func (s *shellService) StartRun(ctx context.Context, req desktop.StartRunRequestDTO, events *mygo.Channel[domain.RunEvent]) (string, error) {
-	handle, err := s.bindings.StartRun(ctx, req)
-	if err != nil {
-		return "", err
-	}
+func streamRun(ctx context.Context, handle desktop.RunHandleDTO, events *mygo.Channel[domain.RunEvent]) (string, error) {
 	for {
 		select {
 		case ev, ok := <-handle.Events:
@@ -109,10 +123,29 @@ func (s *shellService) StartRun(ctx context.Context, req desktop.StartRunRequest
 				return handle.RunID, nil
 			}
 		case <-ctx.Done():
-			handle.Cancel()
+			// A disconnected UI must not kill an in-flight run; CancelRun is
+			// the explicit cancellation command (TAD §14.3).
 			return handle.RunID, ctx.Err()
 		}
 	}
+}
+
+// StartRun streams RunEvents through a typed MyGo channel.
+func (s *shellService) StartRun(ctx context.Context, req desktop.StartRunRequestDTO, events *mygo.Channel[domain.RunEvent]) (string, error) {
+	handle, err := s.bindings.StartRun(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return streamRun(ctx, handle, events)
+}
+
+// ResumeRun continues an interrupted run as a new attempt tied to the original.
+func (s *shellService) ResumeRun(ctx context.Context, runID string, events *mygo.Channel[domain.RunEvent]) (string, error) {
+	handle, err := s.bindings.ResumeRun(ctx, runID)
+	if err != nil {
+		return "", err
+	}
+	return streamRun(ctx, handle, events)
 }
 
 func setup(shell *shellService) error {
@@ -154,13 +187,18 @@ func setup(shell *shellService) error {
 		APIKey:     os.Getenv("SASMITA_OPENAI_API_KEY"),
 		ProviderID: "openai",
 	}
+	app := appsvc.New(store, appsvc.Config{
+		Provider:     adapter,
+		DefaultModel: modelRef,
+	})
+	// Runs left active by a previous process cannot still be executing here.
+	if _, err := app.RecoverStaleRuns(context.Background()); err != nil {
+		return err
+	}
 	providerService := appsvc.NewProviderService(store, appsvc.ProviderServiceConfig{
 		Secrets: secrets.NewKeychain(),
 	})
-	shell.bindings = desktop.NewServiceWithProviders(appsvc.New(store, appsvc.Config{
-		Provider:     adapter,
-		DefaultModel: modelRef,
-	}), providerService)
+	shell.bindings = desktop.NewServiceWithProviders(app, providerService)
 	return nil
 }
 
