@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Composer from './lib/Composer.svelte';
+  import Connections from './lib/Connections.svelte';
   import { createIPC, type IPC } from './lib/ipc';
   import { ChatRun } from './lib/run.svelte';
   import type { Conversation, ConversationDetail, Message } from './lib/types';
@@ -11,6 +12,7 @@
   let detail = $state<ConversationDetail | null>(null);
   let draft = $state('');
   let run = $state(new ChatRun());
+  let showConnections = $state(false);
 
   onMount(async () => {
     ipc = createIPC();
@@ -61,6 +63,11 @@
 <div class="shell">
   <aside class="sidebar">
     <div class="brand">Sasmita</div>
+    <button
+      class="connections-button"
+      data-testid="open-connections"
+      onclick={() => (showConnections = true)}
+    >Koneksi</button>
     <div class="label">PERCAKAPAN</div>
     <nav>
       {#each conversations as conversation (conversation.id)}
@@ -118,12 +125,16 @@
 
     <Composer bind:value={draft} onsubmit={send} />
   </main>
+
+  {#if showConnections}<Connections onClose={() => (showConnections = false)} />{/if}
 </div>
 
 <style>
   .shell { display: flex; gap: 8px; height: 100vh; padding: 8px; background: var(--ground); }
   .sidebar { width: 272px; flex: none; padding: 16px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--side); }
   .brand { padding: 4px 8px 20px; font-size: 18px; font-weight: 700; }
+  .connections-button { width: 100%; margin-bottom: 14px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); text-align: left; }
+  .connections-button:hover { background: var(--raise); }
   .label { padding: 0 8px 8px; color: var(--mute); font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; }
   .conversation { display: block; width: 100%; padding: 9px 10px; border-radius: 6px; color: var(--mute); text-align: left; }
   .conversation:hover { background: var(--raise); color: var(--text); }

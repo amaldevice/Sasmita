@@ -18,6 +18,7 @@ import (
 	"github.com/amaldevice/sasmita/internal/persistence/migrations"
 	"github.com/amaldevice/sasmita/internal/persistence/repositories"
 	"github.com/amaldevice/sasmita/internal/persistence/sqlite"
+	"github.com/amaldevice/sasmita/internal/secrets"
 	"github.com/egoist/mygo"
 )
 
@@ -39,6 +40,32 @@ func (s *shellService) GetConversation(ctx context.Context, conversationID strin
 
 func (s *shellService) GetRunSnapshot(ctx context.Context, runID string) (desktop.RunSnapshotDTO, error) {
 	return s.bindings.GetRunSnapshot(ctx, runID)
+}
+
+// Connection commands. Keys are accepted here only to be handed to the keychain
+// through the application service; they never appear in a response DTO.
+func (s *shellService) AddProviderProfile(ctx context.Context, req desktop.AddProviderProfileRequestDTO) (desktop.ProviderProfileDTO, error) {
+	return s.bindings.AddProviderProfile(ctx, req)
+}
+
+func (s *shellService) ListProviderProfiles(ctx context.Context) ([]desktop.ProviderProfileDTO, error) {
+	return s.bindings.ListProviderProfiles(ctx)
+}
+
+func (s *shellService) UpdateProviderProfile(ctx context.Context, req desktop.UpdateProviderProfileRequestDTO) (desktop.ProviderProfileDTO, error) {
+	return s.bindings.UpdateProviderProfile(ctx, req)
+}
+
+func (s *shellService) DeleteProviderProfile(ctx context.Context, id string) error {
+	return s.bindings.DeleteProviderProfile(ctx, id)
+}
+
+func (s *shellService) ListModels(ctx context.Context, profileID string) ([]desktop.ModelInfoDTO, error) {
+	return s.bindings.ListModels(ctx, profileID)
+}
+
+func (s *shellService) TestConnection(ctx context.Context, profileID string) (desktop.ConnectionResultDTO, error) {
+	return s.bindings.TestConnection(ctx, profileID)
 }
 
 // StartRun streams RunEvents through a typed MyGo channel. The method stays
@@ -107,10 +134,13 @@ func setup(shell *shellService) error {
 		APIKey:     os.Getenv("SASMITA_OPENAI_API_KEY"),
 		ProviderID: "openai",
 	}
-	shell.bindings = desktop.NewService(appsvc.New(store, appsvc.Config{
+	providerService := appsvc.NewProviderService(store, appsvc.ProviderServiceConfig{
+		Secrets: secrets.NewKeychain(),
+	})
+	shell.bindings = desktop.NewServiceWithProviders(appsvc.New(store, appsvc.Config{
 		Provider:     adapter,
 		DefaultModel: modelRef,
-	}))
+	}), providerService)
 	return nil
 }
 
