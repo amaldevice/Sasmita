@@ -1,5 +1,7 @@
-/* Design tokens from DESIGN.md (canon theme, dark by default). */
-:root {
+/* Design tokens from DESIGN.md. Dark is the default; light reuses the same
+   token names with the light column's values. */
+:root,
+:root[data-theme='dark'] {
   --ground: #141414;
   --bg: #1c1c1c;
   --side: #1c1c1c;
@@ -16,6 +18,21 @@
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+:root[data-theme='light'] {
+  --ground: #edece8;
+  --bg: #fbfbfa;
+  --side: #fbfbfa;
+  --surface: #ffffff;
+  --raise: #f1f0ec;
+  --line: #e3e1db;
+  --text: #1b1b1a;
+  --mute: #67665f;
+  --accent: #2457d6;
+  --flow: #2457d6;
+  --attn: #c2410c;
+  --ok: #15803d;
+}
+
 * { box-sizing: border-box; }
 html, body, #app { height: 100%; margin: 0; }
 body {
@@ -30,6 +47,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 * { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
 p, li { text-wrap: pretty; }
 
+/* Reduced motion jumps straight to the end state; no tweening at all. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
 }
