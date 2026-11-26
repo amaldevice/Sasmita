@@ -1,0 +1,35 @@
+[
+  {
+    "runId": "RUN_ID",
+    "seq": 1,
+    "type": "run.queued",
+    "timestamp": "2026-11-26T10:00:00.000Z",
+    "payload": { "version": 1, "status": "queued" }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 2,
+    "type": "ui.block",
+    "timestamp": "2026-11-26T10:00:00.100Z",
+    "payload": {
+      "version": 1,
+      "schemaVersion": "sasmita.ui/v1",
+      "blockId": "uib_invalid",
+      "reason": "unknown component type \"iframe\""
+    }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 3,
+    "type": "model.text_delta",
+    "timestamp": "2026-11-26T10:00:00.200Z",
+    "payload": { "version": 1, "text": "Visual tidak dapat dirender, tetapi jawaban ini tetap tersimpan." }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 4,
+    "type": "run.completed",
+    "timestamp": "2026-11-26T10:00:00.300Z",
+    "payload": { "version": 1, "status": "completed" }
+  }
+]

@@ -21,6 +21,7 @@
   import { ChatRun } from './lib/run.svelte';
   import { theme } from './lib/theme.svelte';
   import type { Conversation, ConversationDetail, Project, RunRecord, SearchResult, ShellView } from './lib/types';
+  import UIBlock from './lib/uiblocks/UIBlock.svelte';
 
   let ipc = $state<IPC | null>(null);
   let conversations = $state<Conversation[]>([]);
@@ -189,6 +190,20 @@
     run.setRunId(handle.runId);
   }
 
+  function getUIData(ref: string, limit: number) {
+    if (!ipc) return Promise.resolve({ ref, rows: [], truncated: false });
+    return ipc.getUIData(ref, limit);
+  }
+
+  // A committed view-local change is persisted as a small event, never sent to
+  // the model. The debounce lives in UIBlock; this is only the typed IPC call.
+  function saveUIState(blockId: string, patch: Record<string, unknown>) {
+    if (!ipc) return;
+    const runId = run.runId || runs.find((record) => record.conversationId === selectedId)?.runId;
+    if (!runId) return;
+    void ipc.saveUIState(runId, blockId, patch).catch(() => {});
+  }
+
   async function search() {
     if (!ipc) return;
     searched = true;
@@ -311,7 +326,16 @@
             <div class="role">{message.role === 'user' ? i18n.t('you') : 'Sasmita'}</div>
             <p>{message.text}</p>
           </article>
+          {#each message.blocks ?? [] as block (block.blockId)}
+            <UIBlock {block} {getUIData} onStateCommit={saveUIState} />
+          {/each}
         {/each}
+
+        {#if run.streaming}
+          {#each run.blocks as block (block.blockId)}
+            <UIBlock {block} {getUIData} onStateCommit={saveUIState} />
+          {/each}
+        {/if}
 
         {#if run.streaming && run.answer}
           <article class="message streaming" data-testid="streaming-answer">

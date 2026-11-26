@@ -14,6 +14,7 @@ import (
 	"github.com/amaldevice/sasmita/internal/agent"
 	ctxlayout "github.com/amaldevice/sasmita/internal/context"
 	"github.com/amaldevice/sasmita/internal/domain"
+	"github.com/amaldevice/sasmita/internal/genui"
 	"github.com/amaldevice/sasmita/internal/model"
 	"github.com/amaldevice/sasmita/internal/persistence/repositories"
 	"github.com/amaldevice/sasmita/internal/runtime"
@@ -54,6 +55,7 @@ type Service struct {
 	builder      ctxlayout.Builder
 	runtime      *runtime.Manager
 	providerKind domain.ProviderKind
+	genui        *genui.Store
 }
 
 func New(store *repositories.Store, cfg Config) *Service {
@@ -72,6 +74,7 @@ func New(store *repositories.Store, cfg Config) *Service {
 	if cfg.NewID == nil {
 		cfg.NewID = randomID
 	}
+	var gen *genui.Store
 	if cfg.Agent == nil {
 		var registry *tools.Registry
 		if cfg.EnableTools {
@@ -80,10 +83,15 @@ func New(store *repositories.Store, cfg Config) *Service {
 				AttachedFiles: cfg.AttachedFiles, OutputCap: cfg.ToolOutputCap,
 				Search: store, NewID: cfg.NewID,
 			})
+			// Tier 1 GenUI reuses #22's registry and tool engine. The host store
+			// keeps validated specs out of the prompt and out of tool results.
+			gen = genui.NewStore()
+			registry.Register(genui.NewRenderTool(gen))
+			registry.Register(genui.NewSkillTool())
 			cfg.Tools = registry.Definitions()
 		}
 		cfg.Agent = agent.New(agent.Config{
-			Provider: cfg.Provider, Tools: registry, NewID: cfg.NewID,
+			Provider: cfg.Provider, Tools: registry, GenUI: gen, NewID: cfg.NewID,
 		})
 	}
 	// Freeze tools for the lifetime of the service (one conversation per run).
@@ -102,6 +110,7 @@ func New(store *repositories.Store, cfg Config) *Service {
 		builder:      ctxlayout.Builder{Tools: cfg.Tools},
 		runtime:      cfg.Runtime,
 		providerKind: kind,
+		genui:        gen,
 	}
 }
 

@@ -97,6 +97,10 @@ func New(cfg Config) *Registry {
 	return r
 }
 
+// Register adds an additional built-in after New. Definitions are re-sorted so
+// the provider request layout stays deterministic (ADR-0001).
+func (r *Registry) Register(t Tool) { r.register(t) }
+
 func (r *Registry) register(t Tool) {
 	spec := t.Spec()
 	if spec.Timeout <= 0 {

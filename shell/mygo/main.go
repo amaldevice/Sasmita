@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"os"
@@ -44,6 +45,16 @@ func (s *shellService) GetConversation(ctx context.Context, conversationID strin
 
 func (s *shellService) GetRunSnapshot(ctx context.Context, runID string) (desktop.RunSnapshotDTO, error) {
 	return s.bindings.GetRunSnapshot(ctx, runID)
+}
+
+// UI blocks fetch large datasets through this bounded, read-only API instead
+// of receiving them in the prompt.
+func (s *shellService) GetUIData(ctx context.Context, ref string, limit int) (desktop.UIDataDTO, error) {
+	return s.bindings.GetUIData(ctx, ref, limit)
+}
+
+func (s *shellService) SaveUIState(ctx context.Context, runID, blockID string, patch json.RawMessage) error {
+	return s.bindings.SaveUIState(ctx, runID, blockID, patch)
 }
 
 func (s *shellService) CancelRun(ctx context.Context, runID string) error {
@@ -187,9 +198,12 @@ func setup(shell *shellService) error {
 		APIKey:     os.Getenv("SASMITA_OPENAI_API_KEY"),
 		ProviderID: "openai",
 	}
+	artifactsDir := filepath.Join(os.TempDir(), "sasmita-artifacts")
 	app := appsvc.New(store, appsvc.Config{
 		Provider:     adapter,
 		DefaultModel: modelRef,
+		EnableTools:  true,
+		ArtifactsDir: artifactsDir,
 	})
 	// Runs left active by a previous process cannot still be executing here.
 	if _, err := app.RecoverStaleRuns(context.Background()); err != nil {
@@ -198,7 +212,9 @@ func setup(shell *shellService) error {
 	providerService := appsvc.NewProviderService(store, appsvc.ProviderServiceConfig{
 		Secrets: secrets.NewKeychain(),
 	})
-	shell.bindings = desktop.NewServiceWithProviders(app, providerService)
+	bindings := desktop.NewServiceWithProviders(app, providerService)
+	bindings.SetUIDataDir(artifactsDir)
+	shell.bindings = bindings
 	return nil
 }
 
