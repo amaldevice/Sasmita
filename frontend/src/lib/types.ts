@@ -64,5 +64,26 @@ export interface RunSnapshot {
 
 export interface RunHandle {
   runId: string;
-  cancel: () => void;
+}
+
+export type RunStatus =
+  | 'queued'
+  | 'preparing'
+  | 'running'
+  | 'awaiting_approval'
+  | 'awaiting_user'
+  | 'paused'
+  | 'cancelling'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'interrupted';
+
+/** UI-facing lifecycle record from desktop.RunDTO (TAD §8.3). */
+export interface RunRecord {
+  runId: string;
+  conversationId: string;
+  status: RunStatus | string;
+  answer: string;
+  originalRunId?: string;
 }
