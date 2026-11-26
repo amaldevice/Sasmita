@@ -3,6 +3,7 @@ package migrations_test
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	"github.com/amaldevice/sasmita/internal/persistence/migrations"
@@ -82,9 +83,9 @@ func TestMigrateFromEmptyAndIdempotent(t *testing.T) {
 	}
 }
 
-// A fresh database must apply all four ticket migrations exactly once, in
-// filename order, and end at version 4 (TAD §13.4).
-func TestMigrateAppliesAllFourFilesExactlyOnce(t *testing.T) {
+// A fresh database must apply every ticket migration exactly once, in
+// filename order, and end at the highest known version (TAD §13.4).
+func TestMigrateAppliesAllFilesExactlyOnce(t *testing.T) {
 	db, err := sqlite.Open(filepath.Join(t.TempDir(), "sasmita.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -110,16 +111,32 @@ func TestMigrateAppliesAllFourFilesExactlyOnce(t *testing.T) {
 		}
 		applied = append(applied, name)
 	}
-	want := []string{"001_init.sql", "002_init.sql", "003_init.sql", "004_init.sql"}
+	// Derive the expectation from the files actually present so parallel
+	// ticket lanes can add migrations without editing this invariant test.
+	// The derived list includes 007 from #18 and 013 from this ticket.
+	names, err := filepath.Glob("*_init.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(names)
+	want := make([]string, 0, len(names))
+	highest := 0
+	for _, name := range names {
+		want = append(want, filepath.Base(name))
+		var version int
+		if _, err := fmt.Sscanf(name[:3], "%d", &version); err == nil && version > highest {
+			highest = version
+		}
+	}
 	if fmt.Sprint(applied) != fmt.Sprint(want) {
 		t.Fatalf("applied migrations = %v, want %v", applied, want)
 	}
-	if migrations.Latest != 4 {
-		t.Fatalf("migrations.Latest = %d, want 4", migrations.Latest)
+	if migrations.Latest != highest {
+		t.Fatalf("migrations.Latest = %d, want %d", migrations.Latest, highest)
 	}
 	v, err := migrations.Version(db)
-	if err != nil || v != 4 {
-		t.Fatalf("schema version = %d (err %v), want 4", v, err)
+	if err != nil || v != highest {
+		t.Fatalf("schema version = %d (err %v), want %d", v, err, highest)
 	}
 	for _, table := range []string{"provider_profiles", "conversation_fts"} {
 		var name string

@@ -11,19 +11,28 @@ const RunEventSchemaVersion = 1
 
 // Event types used by the v1 walking skeleton. Further tickets extend this list.
 const (
-	EventRunQueued           = "run.queued"
-	EventRunPreparing        = "run.preparing"
-	EventRunStarted          = "run.started"
-	EventRunCancelling       = "run.cancelling"
-	EventRunCompleted        = "run.completed"
-	EventRunFailed           = "run.failed"
-	EventRunCancelled        = "run.cancelled"
-	EventRunInterrupted      = "run.interrupted"
-	EventApprovalRequired    = "tool.approval_required"
-	EventModelRequestStarted = "model.request_started"
-	EventModelTextDelta      = "model.text_delta"
-	EventModelUsage          = "model.usage"
+	EventRunQueued            = "run.queued"
+	EventRunPreparing         = "run.preparing"
+	EventRunStarted           = "run.started"
+	EventRunCancelling        = "run.cancelling"
+	EventRunCompleted         = "run.completed"
+	EventRunFailed            = "run.failed"
+	EventRunCancelled         = "run.cancelled"
+	EventRunInterrupted       = "run.interrupted"
+	EventApprovalRequired     = "tool.approval_required"
+	EventModelRequestStarted  = "model.request_started"
+	EventModelTextDelta       = "model.text_delta"
+	EventModelUsage           = "model.usage"
+	EventContextCompacted     = "context.compacted"
+	EventContextBudgetWarning = "context.budget_warning"
 )
+
+// CompactionPayload carries the structured summary and its kept/omitted message
+// IDs. The original summary request is not part of canonical history.
+type CompactionPayload struct {
+	Envelope
+	Compaction
+}
 
 // IsImportantEvent reports events that must never be dropped for UI
 // backpressure: terminal states and approval transitions (TAD §14.3).

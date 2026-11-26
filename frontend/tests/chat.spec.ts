@@ -26,7 +26,10 @@ test('streamed answer renders and survives a restart', async ({ page }) => {
 
   await expect(page.getByTestId('assistant-answer').locator('p')).toHaveText(ANSWER, { timeout: 15_000 });
   expect(ANSWER.startsWith(partial)).toBe(true);
-  await expect(page.getByTestId('usage')).toContainText('12 ↑');
+
+  // Usage is hidden by default (#18): hover the answer to reveal its figures.
+  await page.getByTestId('assistant-answer').hover();
+  await expect(page.getByTestId('usage-popover')).toContainText('12');
 
   // Reload with the same fake IPC state = conversation reopened after restart.
   await page.reload();

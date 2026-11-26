@@ -1,8 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Activity from './lib/Activity.svelte';
+  import ArtifactLibrary from './lib/ArtifactLibrary.svelte';
+  import { installArtifactNavigationGuard } from './lib/ArtifactNavigation';
+  import { createArtifactIPC, fixtureArtifactData, type ArtifactRecord } from './lib/artifacts';
   import Composer from './lib/Composer.svelte';
   import Connections from './lib/Connections.svelte';
+  import Diagnostics from './lib/Diagnostics.svelte';
   import { createConnectionIPC, type ModelInfo } from './lib/connections';
   import EmptyState from './lib/EmptyState.svelte';
   import InterruptedRun from './lib/InterruptedRun.svelte';
@@ -20,7 +24,10 @@
   import { createModeIPC, modeLabel, type Mode, type ModeIPC } from './lib/modes';
   import { ChatRun } from './lib/run.svelte';
   import { theme } from './lib/theme.svelte';
-  import type { Conversation, ConversationDetail, Project, RunRecord, SearchResult, ShellView } from './lib/types';
+  import { recordUsageEvent } from './lib/usage';
+  import { usageSettings } from './lib/usage-settings.svelte';
+  import Usage from './lib/Usage.svelte';
+  import type { Conversation, ConversationDetail, Project, RunEvent, RunRecord, SearchResult, ShellView } from './lib/types';
   import UIBlock from './lib/uiblocks/UIBlock.svelte';
 
   let ipc = $state<IPC | null>(null);
@@ -52,8 +59,11 @@
   let moveProject = $state('');
   let showOnboarding = $state(false);
   let examplePrompts = $state<ExamplePrompt[]>([]);
+  let hoveredAnswer = $state('');
+  let showDiagnostics = $state(false);
   let modes = $state<Mode[]>([]);
   let models = $state<ModelInfo[]>([]);
+  let artifacts = $state<ArtifactRecord[]>([]);
   let modeId = $state('chat');
   let modelId = $state('');
   // Injected once at mount; not reactive state (the shell never swaps it).
@@ -69,6 +79,8 @@
 
   onMount(async () => {
     ipc = createIPC();
+    installArtifactNavigationGuard();
+    artifacts = await createArtifactIPC().listArtifacts();
     modeIPC = createModeIPC(ipc);
     const onboarding = createOnboardingIPC();
     const connections = createConnectionIPC();
@@ -137,11 +149,18 @@
     await ipc.cancelRun(run.runId);
   }
 
+  // Live events feed both the chat run and the Diagnostics usage log. Restore
+  // replays go through run.restore instead, so history is never double-counted.
+  function applyEvent(event: RunEvent): void {
+    run.apply(event);
+    recordUsageEvent(event);
+  }
+
   async function continueRun() {
     if (!ipc || !interrupted) return;
     const original = interrupted;
     run.begin();
-    const handle = await ipc.resumeRun(original.runId, (event) => run.apply(event));
+    const handle = await ipc.resumeRun(original.runId, applyEvent);
     run.setRunId(handle.runId);
     await refreshRuns();
   }
@@ -185,7 +204,7 @@
     run.begin();
     const handle = await ipc.startRun(
       { conversationId: selectedId, text, modelRef: modelId || 'gpt-test', harnessId: modeId },
-      (event) => run.apply(event),
+      applyEvent,
     );
     run.setRunId(handle.runId);
   }
@@ -322,9 +341,17 @@
             class="message"
             class:user={message.role === 'user'}
             data-testid={message.role === 'user' ? 'user-message' : 'assistant-answer'}
+            role="group"
+            onmouseenter={() => (hoveredAnswer = message.id)}
+            onmouseleave={() => (hoveredAnswer = '')}
           >
             <div class="role">{message.role === 'user' ? i18n.t('you') : 'Sasmita'}</div>
             <p>{message.text}</p>
+            <Usage
+              usage={message.role === 'assistant' ? (message.usage ?? null) : null}
+              alwaysShow={usageSettings.alwaysShow}
+              open={hoveredAnswer === message.id}
+            />
           </article>
           {#each message.blocks ?? [] as block (block.blockId)}
             <UIBlock {block} {getUIData} onStateCommit={saveUIState} />
@@ -341,17 +368,12 @@
           <article class="message streaming" data-testid="streaming-answer">
             <div class="role">Sasmita</div>
             <p>{run.answer}</p>
+            <Usage usage={run.usage} alwaysShow={usageSettings.alwaysShow} />
           </article>
         {/if}
 
         {#if run.streaming}
           <Activity status={run.status} cancelling={run.cancelling} steps={run.steps} elapsedSeconds={run.elapsedSeconds} onCancel={() => void cancel()} />
-        {/if}
-
-        {#if run.usage}
-          <div class="usage num" data-testid="usage">
-            {i18n.formatNumber(run.usage.inputTokens)} ↑ &nbsp;{i18n.formatNumber(run.usage.outputTokens)} ↓ &nbsp;{i18n.formatNumber(run.usage.cacheReadTokens)} {i18n.t('cache')}
-          </div>
         {/if}
 
         {#if run.error}
@@ -404,7 +426,14 @@
     {:else if view === 'artifacts'}
       <section class="view" data-testid="artifacts-view">
         <h1>{i18n.t('artifacts')}</h1>
-        <p class="empty-note">{i18n.t('noArtifacts')}</p>
+        <ArtifactLibrary
+          {artifacts}
+          data={fixtureArtifactData}
+          pendingSource={new URLSearchParams(location.search).get('stream') === '1'
+            ? 'export default () => <div className="pending">streaming…</div>;'
+            : ''}
+          onSuggestPrompt={(prompt) => void send(prompt)}
+        />
       </section>
     {:else}
       <section class="view" data-testid="settings-view">
@@ -423,6 +452,24 @@
             <button data-testid="lang-en" class:active={i18n.locale === 'en'} onclick={() => i18n.set('en')}>{i18n.t('english')}</button>
           </div>
         </div>
+        <div class="setting-row">
+          <span>{i18n.t('alwaysShowUsage')}</span>
+          <button
+            class="connections-button"
+            data-testid="toggle-always-usage"
+            aria-pressed={usageSettings.alwaysShow}
+            onclick={() => usageSettings.toggle()}
+          >{usageSettings.alwaysShow ? i18n.t('enabled') : i18n.t('disabled')}</button>
+        </div>
+        <div class="setting-row">
+          <span>{i18n.t('diagnostics')}</span>
+          <button
+            class="connections-button"
+            data-testid="open-diagnostics"
+            onclick={() => (showDiagnostics = !showDiagnostics)}
+          >{showDiagnostics ? i18n.t('close') : i18n.t('open')}</button>
+        </div>
+        {#if showDiagnostics}<Diagnostics />{/if}
         <div class="setting-row">
           <span>Provider connections</span>
           <button
@@ -462,12 +509,11 @@
   }
   .inline-edit button, .search-form button { padding: 8px 14px; border-radius: 6px; background: var(--raise); color: var(--text); }
   .thread { flex: 1; overflow-y: auto; padding: 24px; }
-  .message { max-width: 760px; margin: 0 0 20px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  .message { position: relative; max-width: 760px; margin: 0 0 20px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
   .message.user { margin-left: auto; background: var(--raise); }
   .message.streaming { border-color: var(--flow); }
   .role { margin-bottom: 6px; color: var(--mute); font-size: 12px; }
   .message p { white-space: pre-wrap; line-height: 1.6; }
-  .usage { margin: -8px 0 16px; color: var(--mute); font-size: 12px; }
   .error { color: var(--attn); }
   .panel > :global(form.composer) { margin: 0 24px 24px; }
   .view { flex: 1; overflow-y: auto; padding: 24px; max-width: 760px; width: 100%; margin: 0 auto; }

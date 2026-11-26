@@ -1,3 +1,5 @@
+import type { UsageData } from './usage';
+
 export type Role = 'system' | 'user' | 'assistant';
 
 export type ShellView = 'chat' | 'search' | 'projects' | 'artifacts' | 'settings';
@@ -60,6 +62,8 @@ export interface Message {
   text: string;
   blocks?: UIBlock[];
   createdAt: string;
+  /** Attached when the answer's run recorded usage; absent otherwise. */
+  usage?: UsageData;
 }
 
 export interface ConversationDetail {

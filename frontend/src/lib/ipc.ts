@@ -6,6 +6,7 @@ import uiFallbackReplay from '../fixtures/ui-fallback.json';
 import uiReplay from '../fixtures/ui-blocks.json';
 import { shellService } from '../mygo';
 import { isActiveStatus, latestSeq } from './activity';
+import { usageFromEvents } from './usage';
 import { parseUIBlock } from './uiblocks';
 import type {
   Conversation,
@@ -432,6 +433,9 @@ export class FakeIPC implements IPC {
               text: answer,
               blocks: blocks.length > 0 ? structuredClone(blocks) : undefined,
               createdAt: new Date().toISOString(),
+              // Usage belongs to the answer, so a reopened conversation still
+              // shows the same figures on hover (same data as the Go read path).
+              usage: usageFromEvents(snapshot.events) ?? undefined,
             },
           ];
           const record = this.state.runs.find((run) => run.runId === runId);

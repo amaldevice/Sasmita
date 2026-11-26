@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/amaldevice/sasmita/internal/appsvc"
+	"github.com/amaldevice/sasmita/internal/artifacts"
 	"github.com/amaldevice/sasmita/internal/desktop"
 	"github.com/amaldevice/sasmita/internal/domain"
 	"github.com/amaldevice/sasmita/internal/model/adapters/openai"
@@ -117,6 +118,11 @@ func (s *shellService) ListProjects(ctx context.Context) ([]desktop.ProjectDTO, 
 	return s.bindings.ListProjects(ctx)
 }
 
+// Diagnostics usage report. Hit-rate warnings live only in this command.
+func (s *shellService) GetUsageReport(ctx context.Context) (desktop.UsageReportDTO, error) {
+	return s.bindings.GetUsageReport(ctx)
+}
+
 // streamRun forwards RunEvents through a typed MyGo channel. The method stays
 // pending until a terminal event, so the channel is never closed early.
 func streamRun(ctx context.Context, handle desktop.RunHandleDTO, events *mygo.Channel[domain.RunEvent]) (string, error) {
@@ -179,6 +185,14 @@ func setup(shell *shellService) error {
 		return err
 	}
 	store := repositories.New(db)
+	// Tier 2 artifacts: payloads live next to the DB; metadata is mirrored into
+	// it. The read-only scheme handler must be registered before any window.
+	artifactStore := artifacts.NewStore(filepath.Join(filepath.Dir(dbPath), "artifacts"))
+	artifactStore.DB = db
+	artifactService := &artifacts.Service{Store: artifactStore}
+	if err := mygo.Protocol.Handle(artifacts.Scheme, artifacts.NewHandler(artifactStore)); err != nil {
+		return err
+	}
 	now := time.Now()
 	// v1 has a single default Mode workspace; later tickets add project UI.
 	_ = store.CreateProject(context.Background(), &domain.Project{
@@ -204,6 +218,7 @@ func setup(shell *shellService) error {
 		DefaultModel: modelRef,
 		EnableTools:  true,
 		ArtifactsDir: artifactsDir,
+		Artifacts:    artifactService,
 	})
 	// Runs left active by a previous process cannot still be executing here.
 	if _, err := app.RecoverStaleRuns(context.Background()); err != nil {
@@ -226,7 +241,17 @@ func main() {
 			log.Printf("Sasmita setup failed: %v", err)
 			return
 		}
-		mygo.NewWindow(mygo.WindowOptions{Title: "Sasmita", URL: "/"})
+		win := mygo.NewWindow(mygo.WindowOptions{Title: "Sasmita", URL: "/"})
+		// MyGo v0.10 treats custom schemes as trusted in the main frame.
+		// NavigateEvent has no frame flag; iframe loads of artifact:// are not
+		// user-initiated, so blocking user-initiated ones keeps inline
+		// artifacts working while stopping link clicks out of the trusted UI.
+		win.Page().OnWillNavigate(func(e *mygo.NavigateEvent) {
+			if e.UserInitiated && artifacts.RejectMainFrameNavigation(e.URL) != nil {
+				log.Printf("blocked navigation to %s", e.URL)
+				e.PreventDefault()
+			}
+		})
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)

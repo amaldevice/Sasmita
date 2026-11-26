@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/amaldevice/sasmita/internal/agent"
+	"github.com/amaldevice/sasmita/internal/artifacts"
 	ctxlayout "github.com/amaldevice/sasmita/internal/context"
 	"github.com/amaldevice/sasmita/internal/domain"
 	"github.com/amaldevice/sasmita/internal/genui"
@@ -19,6 +20,7 @@ import (
 	"github.com/amaldevice/sasmita/internal/persistence/repositories"
 	"github.com/amaldevice/sasmita/internal/runtime"
 	"github.com/amaldevice/sasmita/internal/tools"
+	"github.com/amaldevice/sasmita/internal/usage"
 )
 
 const (
@@ -41,18 +43,30 @@ type Config struct {
 	AttachedFiles  []string
 	ToolOutputCap  int
 	Agent          agent.Engine
+	// Artifacts opts the service into Tier 2 artifact commands and tools (#28).
+	Artifacts *artifacts.Service
 	// ContextNote supplies dynamic information for the tail note on the new
 	// user turn. It must never be placed in the static system instruction.
 	ContextNote func() string
-	Now         func() time.Time
-	NewID       func() string
-	Runtime     *runtime.Manager
+	// NoteSource is the delta-aware replacement for ContextNote. The builder
+	// emits only what changed since the previous note (GLOSSARY "context note").
+	NoteSource func() ctxlayout.NoteInput
+	// InputBudgetTokens enables automatic compaction at Threshold (0.75 by
+	// default) of the input budget; zero disables it.
+	InputBudgetTokens   int
+	CompactionThreshold float64
+	KeepUserTurns       int
+	Now                 func() time.Time
+	NewID               func() string
+	Runtime             *runtime.Manager
 }
 
 type Service struct {
 	store        *repositories.Store
 	cfg          Config
 	builder      ctxlayout.Builder
+	notes        *ctxlayout.NoteBuilder
+	compactor    ctxlayout.Compactor
 	runtime      *runtime.Manager
 	providerKind domain.ProviderKind
 	genui        *genui.Store
@@ -81,7 +95,7 @@ func New(store *repositories.Store, cfg Config) *Service {
 			registry = tools.New(tools.Config{
 				ArtifactsDir: cfg.ArtifactsDir, WorkspaceRoots: cfg.WorkspaceRoots,
 				AttachedFiles: cfg.AttachedFiles, OutputCap: cfg.ToolOutputCap,
-				Search: store, NewID: cfg.NewID,
+				Search: store, NewID: cfg.NewID, Artifacts: cfg.Artifacts,
 			})
 			// Tier 1 GenUI reuses #22's registry and tool engine. The host store
 			// keeps validated specs out of the prompt and out of tool results.
@@ -104,10 +118,21 @@ func New(store *repositories.Store, cfg Config) *Service {
 	if aware, ok := cfg.Provider.(model.ProviderKindAware); ok {
 		kind = domain.ProviderKind(aware.ProviderKind())
 	}
+	builder := ctxlayout.Builder{Tools: cfg.Tools}
 	return &Service{
-		store:        store,
-		cfg:          cfg,
-		builder:      ctxlayout.Builder{Tools: cfg.Tools},
+		store:   store,
+		cfg:     cfg,
+		builder: builder,
+		notes:   ctxlayout.NewNoteBuilder(),
+		compactor: ctxlayout.Compactor{
+			Provider:          cfg.Provider,
+			Builder:           builder,
+			InputBudgetTokens: cfg.InputBudgetTokens,
+			Threshold:         cfg.CompactionThreshold,
+			KeepUserTurns:     cfg.KeepUserTurns,
+			NewID:             cfg.NewID,
+			Now:               cfg.Now,
+		},
 		runtime:      cfg.Runtime,
 		providerKind: kind,
 		genui:        gen,
@@ -161,6 +186,30 @@ func (s *Service) GetConversation(ctx context.Context, id string) (*domain.Conve
 	messages, err := s.store.ListMessages(ctx, id, 0)
 	if err != nil {
 		return nil, err
+	}
+	// Attach each answer's usage from the run that produced it. This read path
+	// never returns a hit-rate warning: that belongs to Diagnostics only.
+	for i := range messages {
+		m := &messages[i]
+		if m.Role != domain.RoleAssistant || m.RunID == "" {
+			continue
+		}
+		usages, err := s.store.ListUsage(ctx, m.RunID)
+		if err != nil || len(usages) == 0 {
+			continue
+		}
+		u := usages[len(usages)-1]
+		view := usage.ViewOf(usage.Record{
+			ProviderID: u.ProviderID, ModelID: u.ModelID,
+			InputTokens: u.InputTokens, OutputTokens: u.OutputTokens,
+			CacheReadTokens: u.CacheReadTokens, CacheWriteTokens: u.CacheWriteTokens,
+			UncachedTokens: u.UncachedTokens, Estimated: u.Estimated,
+			CostEstimate: u.CostEstimate,
+		})
+		if run, err := s.store.GetRun(ctx, m.RunID); err == nil && run.FinishedAt != nil {
+			view.DurationMs = run.FinishedAt.Sub(run.StartedAt).Milliseconds()
+		}
+		m.Usage = &view
 	}
 	return &domain.ConversationDetail{Conversation: *conv, Messages: messages}, nil
 }
