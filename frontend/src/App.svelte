@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Composer from './lib/Composer.svelte';
+  import Connections from './lib/Connections.svelte';
   import Icon from './lib/Icon.svelte';
   import Sidebar from './lib/Sidebar.svelte';
   import { i18n } from './lib/i18n.svelte';
@@ -16,6 +17,7 @@
   let detail = $state<ConversationDetail | null>(null);
   let draft = $state('');
   let run = $state(new ChatRun());
+  let showConnections = $state(false);
   let collapsed = $state(false);
   let view = $state<ShellView>('chat');
   let searchQuery = $state('');
@@ -305,6 +307,15 @@
             <button data-testid="lang-en" class:active={i18n.locale === 'en'} onclick={() => i18n.set('en')}>{i18n.t('english')}</button>
           </div>
         </div>
+        <div class="setting-row">
+          <span>Provider connections</span>
+          <button
+            class="connections-button"
+            data-testid="open-connections"
+            onclick={() => (showConnections = !showConnections)}
+          >{showConnections ? i18n.t('cancel') : 'Koneksi'}</button>
+        </div>
+        {#if showConnections}<Connections onClose={() => (showConnections = false)} />{/if}
       </section>
     {/if}
   </main>
@@ -322,6 +333,8 @@
   .icon-button { padding: 7px; }
   .icon-button.lang { font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; }
   .text-button:hover, .icon-button:hover { background: var(--raise); color: var(--text); }
+  .connections-button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); }
+  .connections-button:hover { background: var(--raise); }
   .inline-edit { display: flex; gap: 8px; padding: 10px 24px; border-bottom: 1px solid var(--line); }
   .inline-edit input, .inline-edit select, .search-form input {
     flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px;

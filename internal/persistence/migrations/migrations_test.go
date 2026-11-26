@@ -50,7 +50,7 @@ func TestMigrateFromEmptyAndIdempotent(t *testing.T) {
 	}
 	for _, table := range []string{
 		"schema_migrations", "projects", "conversations", "messages",
-		"runs", "run_events", "usage_records",
+		"runs", "run_events", "usage_records", "provider_profiles",
 	} {
 		if !found[table] {
 			t.Errorf("table %q was not created", table)

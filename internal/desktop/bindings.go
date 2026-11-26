@@ -92,18 +92,31 @@ type Bindings interface {
 	ListProjects(ctx context.Context) ([]ProjectDTO, error)
 	StartRun(ctx context.Context, req StartRunRequestDTO) (RunHandleDTO, error)
 	GetRunSnapshot(ctx context.Context, runID string) (RunSnapshotDTO, error)
+	AddProviderProfile(ctx context.Context, req AddProviderProfileRequestDTO) (ProviderProfileDTO, error)
+	ListProviderProfiles(ctx context.Context) ([]ProviderProfileDTO, error)
+	UpdateProviderProfile(ctx context.Context, req UpdateProviderProfileRequestDTO) (ProviderProfileDTO, error)
+	DeleteProviderProfile(ctx context.Context, id string) error
+	ListModels(ctx context.Context, profileID string) ([]ModelInfoDTO, error)
+	TestConnection(ctx context.Context, profileID string) (ConnectionResultDTO, error)
 }
 
 // Service adapts the application service to the typed bindings. It is shared
 // by every shell implementation.
 type Service struct {
-	svc *appsvc.Service
+	svc       *appsvc.Service
+	providers *appsvc.ProviderService
 }
 
 var _ Bindings = (*Service)(nil)
 
 func NewService(svc *appsvc.Service) *Service {
 	return &Service{svc: svc}
+}
+
+// NewServiceWithProviders wires the provider-profile commands in addition to
+// the chat commands. NewService remains available for chat-only shells.
+func NewServiceWithProviders(svc *appsvc.Service, providers *appsvc.ProviderService) *Service {
+	return &Service{svc: svc, providers: providers}
 }
 
 func (s *Service) CreateConversation(ctx context.Context, projectID, title, harnessID string) (ConversationDTO, error) {
