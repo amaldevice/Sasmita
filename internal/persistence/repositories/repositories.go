@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	"github.com/amaldevice/sasmita/internal/domain"
+	"github.com/amaldevice/sasmita/internal/model"
 )
 
 type Store struct {
@@ -127,7 +128,7 @@ func (s *Store) TouchConversation(ctx context.Context, id string, at time.Time) 
 }
 
 func (s *Store) AddMessage(ctx context.Context, m *domain.Message) error {
-	content, err := json.Marshal(m.Content)
+	content, err := model.MarshalDeterministic(m.Content)
 	if err != nil {
 		return err
 	}
@@ -316,7 +317,7 @@ func (s *Store) StartRunTx(ctx context.Context, run *domain.Run, msg *domain.Mes
 	if err != nil {
 		return err
 	}
-	content, err := json.Marshal(msg.Content)
+	content, err := model.MarshalDeterministic(msg.Content)
 	if err != nil {
 		tx.Rollback()
 		return err

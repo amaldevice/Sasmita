@@ -120,7 +120,7 @@ func TestStreamScriptedSSEAndExactRequestBytes(t *testing.T) {
 		t.Fatalf("anthropic-version = %q", got)
 	}
 
-	want := `{"model":"claude-test","max_tokens":1024,"stream":true,"system":[{"type":"text","text":"You are Sasmita. Answer clearly and concisely.","cache_control":{"type":"ephemeral","ttl":"1h"}}],"messages":[{"role":"user","content":"Hi"}]}`
+	want := `{"model":"claude-test","max_tokens":1024,"stream":true,"session_id":"conv-1","system":[{"type":"text","text":"You are Sasmita. Answer clearly and concisely.","cache_control":{"type":"ephemeral","ttl":"1h"}}],"messages":[{"role":"user","content":[{"type":"text","text":"Hi","cache_control":{"type":"ephemeral","ttl":"5m"}}]}]}`
 	if string(recorded) != want {
 		t.Fatalf("request bytes mismatch\n got: %s\nwant: %s", recorded, want)
 	}
@@ -217,16 +217,17 @@ func TestStableRequestPrefixIsByteExactPrefix(t *testing.T) {
 		model.Message{Role: "assistant", Content: "a1"},
 		model.Message{Role: "user", Content: "q2"},
 	)
-	p1, err := anthropic.EncodeRequest(req(turn1))
+	p1, err := anthropic.CanonicalRequest(req(turn1))
 	if err != nil {
 		t.Fatal(err)
 	}
-	p2, err := anthropic.EncodeRequest(req(turn2))
+	p2, err := anthropic.CanonicalRequest(req(turn2))
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Strip the trailing `]}` envelope: appending a turn must only extend the
-	// earlier bytes (ADR-0001 golden prefix).
+	// Breakpoints are wire-only decorations and move with the last block, so
+	// the golden prefix is asserted over the canonical history view. Strip the
+	// trailing `]}` envelope (ADR-0001; docs/benchmarks/s2-adapters-cache.md).
 	stable := func(b []byte) []byte { return b[:len(b)-2] }
 	if !strings.HasPrefix(string(stable(p2)), string(stable(p1))) {
 		t.Fatalf("golden prefix broken\nturn 1: %s\nturn 2: %s", p1, p2)

@@ -8,9 +8,12 @@ import (
 )
 
 // Message is an active-context item. Role and Content are wire-neutral.
+// Blocks carries raw provider content blocks in their original byte order and
+// key order; adapters replay them verbatim instead of re-serializing them.
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string            `json:"role"`
+	Content string            `json:"content,omitempty"`
+	Blocks  []json.RawMessage `json:"blocks,omitempty"`
 }
 
 // ToolDefinition is a provider-neutral tool schema. Adapters own the wire
@@ -36,6 +39,7 @@ type StreamRequest struct {
 	Messages       []Message
 	Tools          []ToolDefinition
 	PromptCacheKey string
+	ConversationID string
 	RunID          string
 }
 
@@ -45,6 +49,7 @@ const (
 	EventTextDelta StreamEventKind = iota + 1
 	EventUsage
 	EventToolUse
+	EventContentBlocks
 )
 
 // StreamEvent is a normalized provider event. Errors are returned from Stream.
@@ -53,6 +58,9 @@ type StreamEvent struct {
 	Text     string
 	Usage    *Usage
 	ToolCall *ToolCall
+	// ContentBlocks is emitted once at the end of a turn with the assistant's
+	// raw content blocks, including thinking and signatures.
+	ContentBlocks []json.RawMessage
 }
 
 // Usage holds provider-reported token counts.
@@ -63,6 +71,8 @@ type Usage struct {
 	OutputTokens     int64
 	CacheReadTokens  int64
 	CacheWriteTokens int64
+	UncachedTokens   int64
+	Estimated        bool
 }
 
 // ModelProvider is implemented only by adapters in internal/model/adapters.

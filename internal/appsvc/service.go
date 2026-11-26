@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	ctxlayout "github.com/amaldevice/sasmita/internal/context"
 	"github.com/amaldevice/sasmita/internal/domain"
 	"github.com/amaldevice/sasmita/internal/model"
 	"github.com/amaldevice/sasmita/internal/persistence/repositories"
@@ -18,9 +19,8 @@ import (
 )
 
 const (
-	defaultSystemPrompt = "You are Sasmita. Answer clearly and concisely."
-	defaultModel        = "gpt-4o-mini"
-	defaultHarness      = "chat"
+	defaultModel   = "gpt-4o-mini"
+	defaultHarness = "chat"
 )
 
 type Config struct {
@@ -28,15 +28,20 @@ type Config struct {
 	DefaultModel     string
 	CoalesceSize     int
 	CoalesceInterval time.Duration // 0 disables timer-based flushing
-	ContextLimit     int
-	Now              func() time.Time
-	NewID            func() string
-	Runtime          *runtime.Manager
+	ContextLimit     int           // retained for callers; no longer truncates history
+	Tools            []model.ToolDefinition
+	// ContextNote supplies dynamic information for the tail note on the new
+	// user turn. It must never be placed in the static system instruction.
+	ContextNote func() string
+	Now         func() time.Time
+	NewID       func() string
+	Runtime     *runtime.Manager
 }
 
 type Service struct {
 	store   *repositories.Store
 	cfg     Config
+	builder ctxlayout.Builder
 	runtime *runtime.Manager
 }
 
@@ -56,10 +61,17 @@ func New(store *repositories.Store, cfg Config) *Service {
 	if cfg.NewID == nil {
 		cfg.NewID = randomID
 	}
+	// Freeze tools for the lifetime of the service (one conversation per run).
+	cfg.Tools = append([]model.ToolDefinition(nil), cfg.Tools...)
 	if cfg.Runtime == nil {
 		cfg.Runtime = runtime.NewManager()
 	}
-	return &Service{store: store, cfg: cfg, runtime: cfg.Runtime}
+	return &Service{
+		store:   store,
+		cfg:     cfg,
+		builder: ctxlayout.Builder{Tools: cfg.Tools},
+		runtime: cfg.Runtime,
+	}
 }
 
 func randomID() string {
