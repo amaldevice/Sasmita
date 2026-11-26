@@ -35,6 +35,16 @@ recovers through the watchdog within ~5 s. **None of this was measured here** â€
 this environment has no packaged MyGo shell to drive. These remain manual /
 packaged checks; we do not claim WKWebView isolation is verified.
 
+The MyGo shell registers `artifact://` with the read-only handler before window
+creation and blocks user-initiated `artifact://` navigations via
+`Page.OnWillNavigate`. MyGo v0.10's `NavigateEvent` does **not** expose whether
+the frame is the main frame, so the Go hook cannot distinguish an inline iframe
+load from a top-level jump. It blocks user-initiated ones (the common link
+case) while letting non-user-initiated iframe loads work; the frontend guards
+`artifact://` anchors as a second layer. Programmatic top-level navigation
+remains part of the packaged check above â€” do not claim it is structurally
+closed by the Go hook).
+
 No failure was observed, so the pre-decided fallback (hold Tier 2 inline only,
 or use an `Untrusted` window if iframe messages reach Go) was **not triggered**.
 The implementation follows ADR-0004 and `research/mygo-isolation.md` so the
