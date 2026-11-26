@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import Activity from './lib/Activity.svelte';
   import ApprovalCard from './lib/ApprovalCard.svelte';
+  import ArtifactFrame from './lib/ArtifactFrame.svelte';
   import ArtifactLibrary from './lib/ArtifactLibrary.svelte';
   import ArtifactLifecycle from './lib/ArtifactLifecycle.svelte';
   import { installArtifactNavigationGuard } from './lib/ArtifactNavigation';
@@ -17,6 +18,7 @@
   import Sidebar from './lib/Sidebar.svelte';
   import { i18n } from './lib/i18n.svelte';
   import { createIPC, type IPC } from './lib/ipc';
+  import { DEFAULT_FORMATS, readingMode, type AnswerFormat } from './lib/layouts';
   import {
     completeOnboarding,
     createOnboardingIPC,
@@ -82,8 +84,19 @@
   let artifacts = $state<ArtifactRecord[]>([]);
   let modeId = $state('chat');
   let modelId = $state('');
+  // Reading layout is view-local: Chat opens one column, Baca two columns below.
+  let format = $state<AnswerFormat>(DEFAULT_FORMATS.chat);
+  let panelArtifact = $state<ArtifactRecord | null>(null);
+  let panelState = $state<'side' | 'fullscreen'>('side');
   // Injected once at mount; not reactive state (the shell never swaps it).
   let modeIPC: ModeIPC | null = null;
+
+  let readingView = $derived(readingMode(view));
+  let spotArtifact = $derived.by(() => {
+    if (!run.artifactRef) return null;
+    const id = run.artifactRef.replace(/^artifact:\/\//, '').split(/[?#/]/)[0];
+    return artifacts.find((artifact) => artifact.id === id) ?? null;
+  });
 
   // A conversation without a project has no root_uri, so no folder action.
   let hasFolder = $derived.by(() => {
@@ -185,10 +198,24 @@
   });
 
   function shortcut(event: KeyboardEvent) {
+    if (event.key === 'Escape' && panelArtifact) {
+      event.preventDefault();
+      if (panelState === 'fullscreen') panelState = 'side';
+      else panelArtifact = null;
+      return;
+    }
     if ((event.metaKey || event.ctrlKey) && event.key === '\\') {
       event.preventDefault();
       collapsed = !collapsed;
     }
+  }
+
+  /** Chat and Baca are header views; each starts at its own reading format. */
+  function setReadingView(next: 'chat' | 'baca') {
+    view = next;
+    collapsed = next === 'baca';
+    format = DEFAULT_FORMATS[readingMode(next)];
+    panelArtifact = null;
   }
 
   async function select(id: string) {
@@ -231,7 +258,7 @@
 
   async function newChat() {
     if (!ipc) return;
-    view = 'chat';
+    setReadingView('chat');
     const created = await ipc.createConversation('p1', i18n.t('newTitle'), 'chat');
     conversations = [created, ...conversations];
     selectedId = created.id;
@@ -335,18 +362,31 @@
     {conversations}
     {selectedId}
     {badges}
+    instant={view === 'baca'}
     onnewchat={() => void newChat()}
     onselect={(id) => void select(id)}
   />
 
   <main class="panel">
-    {#if view === 'chat'}
+    {#if view === 'chat' || view === 'baca'}
       <header>
         <div class="title-block">
           <h1>{detail?.conversation.title ?? i18n.t('newChat')}</h1>
           <span class="mode">{modeLabel(modes.find((m) => m.id === modeId), i18n.locale)}</span>
         </div>
         <div class="actions">
+          <div class="segmented view-switch" role="group" aria-label={i18n.t('readingView')}>
+            <button
+              data-testid="view-chat"
+              aria-pressed={readingView === 'chat'}
+              onclick={() => setReadingView('chat')}
+            >{i18n.t('chatView')}</button>
+            <button
+              data-testid="view-baca"
+              aria-pressed={readingView === 'baca'}
+              onclick={() => setReadingView('baca')}
+            >{i18n.t('bacaView')}</button>
+          </div>
           {#if hasFolder}
             <button class="text-button" data-testid="open-folder" title={i18n.t('openFolder')}>
               <Icon name="folder" size={15} />
@@ -402,53 +442,90 @@
           <ApprovalCard {approval} onresolve={(decision) => void resolveApproval(approval.approvalId, decision)} />
         {/if}
 
-        {#if detail?.messages.length === 0 && !run.answer}
-          <EmptyState prompts={examplePrompts} onsuggest={(text) => void send(text)} />
-        {/if}
+        <div class="reading-column" data-testid="reading-column" data-view={readingView} data-format={format}>
+          <div class="format-bar" role="group" aria-label={i18n.t('readingFormat')}>
+            <button data-testid="format-one" aria-pressed={format === 'one'} onclick={() => (format = 'one')}>{i18n.t('formatOne')}</button>
+            <button data-testid="format-two-below" aria-pressed={format === 'twoBelow'} onclick={() => (format = 'twoBelow')}>{i18n.t('formatTwoBelow')}</button>
+            <button data-testid="format-side-by-side" aria-pressed={format === 'sideBySide'} onclick={() => (format = 'sideBySide')}>{i18n.t('formatSideBySide')}</button>
+          </div>
 
-        {#each detail?.messages ?? [] as message (message.id)}
-          <article
-            class="message"
-            class:user={message.role === 'user'}
-            data-testid={message.role === 'user' ? 'user-message' : 'assistant-answer'}
-            role="group"
-            onmouseenter={() => (hoveredAnswer = message.id)}
-            onmouseleave={() => (hoveredAnswer = '')}
-          >
-            <div class="role">{message.role === 'user' ? i18n.t('you') : 'Sasmita'}</div>
-            <p>{message.text}</p>
-            <Usage
-              usage={message.role === 'assistant' ? (message.usage ?? null) : null}
-              alwaysShow={usageSettings.alwaysShow}
-              open={hoveredAnswer === message.id}
-            />
-          </article>
-          {#each message.blocks ?? [] as block (block.blockId)}
-            <UIBlock {block} {getUIData} onStateCommit={saveUIState} />
+          {#if detail?.messages.length === 0 && !run.answer}
+            <EmptyState prompts={examplePrompts} onsuggest={(text) => void send(text)} />
+          {/if}
+
+          {#each detail?.messages ?? [] as message (message.id)}
+            {#if message.role === 'assistant'}
+              <div class="answer-group" data-testid="answer-group" data-format={format}>
+                {#if message.blocks && message.blocks.length > 0}
+                  <div class="visual-grid" data-testid="visual-grid" data-format={format}>
+                    {#each message.blocks as block (block.blockId)}
+                      <UIBlock {block} {getUIData} onStateCommit={saveUIState} />
+                    {/each}
+                  </div>
+                {/if}
+                <article
+                  class="message"
+                  data-testid="assistant-answer"
+                  role="group"
+                  onmouseenter={() => (hoveredAnswer = message.id)}
+                  onmouseleave={() => (hoveredAnswer = '')}
+                >
+                  <div class="role">Sasmita</div>
+                  <p>{message.text}</p>
+                  <Usage
+                    usage={message.usage ?? null}
+                    alwaysShow={usageSettings.alwaysShow}
+                    open={hoveredAnswer === message.id}
+                  />
+                </article>
+              </div>
+            {:else}
+              <article class="message user" data-testid="user-message" role="group">
+                <div class="role">{i18n.t('you')}</div>
+                <p>{message.text}</p>
+              </article>
+            {/if}
           {/each}
-        {/each}
 
-        {#if run.streaming}
-          {#each run.blocks as block (block.blockId)}
-            <UIBlock {block} {getUIData} onStateCommit={saveUIState} />
-          {/each}
-        {/if}
+          {#if spotArtifact}
+            <div class="inline-spot" data-testid="artifact-inline-spot">
+              <span>{spotArtifact.title}</span>
+              <button class="text-button" data-testid="open-beside-chat" onclick={() => { panelArtifact = spotArtifact; panelState = 'side'; }}>
+                <Icon name="expand" size={14} />
+                {i18n.t('openInSidePanel')}
+              </button>
+            </div>
+          {/if}
 
-        {#if run.streaming && run.answer}
-          <article class="message streaming" data-testid="streaming-answer">
-            <div class="role">Sasmita</div>
-            <p>{run.answer}</p>
-            <Usage usage={run.usage} alwaysShow={usageSettings.alwaysShow} />
-          </article>
-        {/if}
+          {#if run.streaming}
+            <div class="answer-group" data-testid="answer-group" data-format={format}>
+              {#if run.visualPending}
+                <div class="visual-skeleton" data-testid="visual-skeleton" role="status" aria-label={i18n.t('buildingVisual')}>
+                  <span></span><span></span><span></span>
+                </div>
+              {/if}
+              {#if run.blocks.length > 0}
+                <div class="visual-grid" data-testid="visual-grid" data-format={format}>
+                  {#each run.blocks as block (block.blockId)}
+                    <UIBlock {block} {getUIData} onStateCommit={saveUIState} />
+                  {/each}
+                </div>
+              {/if}
+              {#if run.answer}
+                <article class="message streaming" data-testid="streaming-answer">
+                  <div class="role">Sasmita</div>
+                  <p>{run.answer}</p>
+                  <Usage usage={run.usage} alwaysShow={usageSettings.alwaysShow} />
+                </article>
+              {/if}
+            </div>
+            <Activity status={run.status} cancelling={run.cancelling} steps={run.steps} elapsedSeconds={run.elapsedSeconds} onCancel={() => void cancel()} />
+          {/if}
 
-        {#if run.streaming}
-          <Activity status={run.status} cancelling={run.cancelling} steps={run.steps} elapsedSeconds={run.elapsedSeconds} onCancel={() => void cancel()} />
-        {/if}
-
-        {#if run.error}
-          <p class="error" data-testid="run-error">{run.error}</p>
-        {/if}
+          {#if run.error}
+            <p class="error" data-testid="run-error">{run.error}</p>
+          {/if}
+        </div>
       </div>
 
       <Composer
@@ -554,6 +631,36 @@
     {/if}
   </main>
 
+  {#if panelArtifact}
+    <aside
+      class="artifact-panel"
+      data-testid="artifact-panel"
+      data-state={panelState}
+      aria-label={panelArtifact.title}
+    >
+      <div class="panel-bar">
+        <span>{panelArtifact.title}</span>
+        <div class="actions">
+          <button
+            class="text-button"
+            data-testid="artifact-fullscreen"
+            aria-pressed={panelState === 'fullscreen'}
+            onclick={() => (panelState = panelState === 'fullscreen' ? 'side' : 'fullscreen')}
+          >{panelState === 'fullscreen' ? i18n.t('exitFullScreen') : i18n.t('fullScreen')}</button>
+          <button
+            class="icon-button"
+            data-testid="artifact-close"
+            aria-label={i18n.t('close')}
+            onclick={() => (panelArtifact = null)}
+          ><Icon name="close" size={16} /></button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <ArtifactFrame artifact={panelArtifact} />
+      </div>
+    </aside>
+  {/if}
+
   {#if showOnboarding}
     <Onboarding onDone={() => { completeOnboarding(); showOnboarding = false; }} />
   {/if}
@@ -600,4 +707,29 @@
   .segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
   .segmented button { padding: 7px 12px; color: var(--mute); }
   .segmented button.active { background: var(--raise); color: var(--text); }
+  .view-switch button { font-size: 13px; }
+  .view-switch button[aria-pressed='true'] { background: var(--raise); color: var(--text); }
+  .reading-column { width: 100%; max-width: 760px; margin: 0 auto; }
+  .reading-column[data-view='baca'] { max-width: 1040px; }
+  .format-bar { display: flex; gap: 4px; margin-bottom: 16px; }
+  .format-bar button { padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--mute); font-size: 13px; }
+  .format-bar button[aria-pressed='true'] { background: var(--raise); color: var(--text); }
+  .answer-group { display: grid; grid-template-columns: 1fr; gap: 14px; margin-bottom: 20px; }
+  .answer-group[data-format='sideBySide'] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .visual-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  .visual-grid[data-format='twoBelow'] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .visual-skeleton { display: flex; flex-direction: column; gap: 8px; padding: 16px; border: 1px solid var(--flow); border-radius: 10px; background: var(--surface); }
+  .visual-skeleton span { height: 12px; border-radius: 6px; background: var(--raise); animation: skeleton 1.2s ease-in-out infinite alternate; }
+  .visual-skeleton span:nth-child(2) { width: 70%; }
+  .visual-skeleton span:nth-child(3) { width: 45%; }
+  @keyframes skeleton { from { opacity: 0.4; } to { opacity: 1; } }
+  .inline-spot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--mute); font-size: 13px; }
+  .artifact-panel {
+    position: fixed; z-index: 20; top: 8px; right: 8px; bottom: 8px;
+    width: min(560px, calc(100vw - 16px)); display: flex; flex-direction: column; gap: 8px;
+    padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg);
+  }
+  .artifact-panel[data-state='fullscreen'] { inset: 8px; width: auto; }
+  .panel-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .panel-body { flex: 1; min-height: 0; overflow-y: auto; }
 </style>

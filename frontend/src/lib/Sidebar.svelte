@@ -9,6 +9,8 @@
     conversations = [],
     selectedId = '',
     badges = {},
+    /** Baca switches to the rail instantly; no reading-view transition. */
+    instant = false,
     onnewchat,
     onselect,
   }: {
@@ -17,6 +19,7 @@
     conversations: Conversation[];
     selectedId: string;
     badges?: Record<string, SidebarBadge>;
+    instant?: boolean;
     onnewchat: () => void;
     onselect: (id: string) => void;
   } = $props();
@@ -40,7 +43,13 @@
   }
 </script>
 
-<aside class="sidebar" class:collapsed data-testid="sidebar" data-state={collapsed ? 'rail' : 'expanded'}>
+<aside
+  class="sidebar"
+  class:collapsed
+  data-testid="sidebar"
+  data-state={collapsed ? 'rail' : 'expanded'}
+  data-instant={instant ? 'true' : undefined}
+>
   <div class="brand-row">
     {#if !collapsed}<span class="brand">Sasmita</span>{/if}
     <button
@@ -112,6 +121,7 @@
     transition: width 220ms var(--ease-out), padding 220ms var(--ease-out);
   }
   .sidebar.collapsed { width: 64px; padding: 16px 10px; }
+  .sidebar[data-instant='true'] { transition: none; }
   .brand-row {
     display: flex;
     align-items: center;
