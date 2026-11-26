@@ -92,11 +92,19 @@ func (s *Service) StartRun(ctx context.Context, req domain.StartRunRequest) (*Ru
 		HarnessID:      harness,
 		StartedAt:      now,
 	}
+	content := domain.TextContent(req.Text)
+	if s.cfg.ContextNote != nil {
+		if note := strings.TrimSpace(s.cfg.ContextNote()); note != "" {
+			// Dynamic information is a tail context note on the new user turn,
+			// never part of the static system instruction (ADR-0001).
+			content = append(content, domain.ContentPart{Type: "context_note", Text: note})
+		}
+	}
 	userMessage := &domain.Message{
 		ID:             s.cfg.NewID(),
 		ConversationID: req.ConversationID,
 		Role:           domain.RoleUser,
-		Content:        domain.TextContent(req.Text),
+		Content:        content,
 		CreatedAt:      now,
 	}
 	if err := s.store.StartRunTx(ctx, run, userMessage, now); err != nil {
@@ -164,20 +172,18 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 		domain.StatusPayload{Envelope: envelope(), Status: string(domain.RunRunning)})
 	s.emit(persistCtx, stream, run.ID, domain.EventModelRequestStarted, envelope())
 
-	history, err := s.store.ListMessages(persistCtx, run.ConversationID, s.cfg.ContextLimit)
+	// Full canonical history: no sliding window. Compaction is a separate
+	// ticket and is the only event allowed to change the prefix (ADR-0001).
+	history, err := s.store.ListMessages(persistCtx, run.ConversationID, 0)
 	if err != nil {
 		s.fail(ctx, persistCtx, run, stream, err)
 		return
 	}
-	// Active context is derived from canonical history. The system instruction
-	// is static (no timestamps) so the serialized prefix stays byte-stable.
-	contextMessages := []model.Message{{Role: "system", Content: defaultSystemPrompt}}
-	for _, m := range history {
-		contextMessages = append(contextMessages, model.Message{Role: string(m.Role), Content: m.Text()})
-	}
+	request := s.builder.Build(run.ConversationID, run.ModelRef, run.ID, history)
 
 	var full, pending strings.Builder
 	var usage *model.Usage
+	var contentBlocks []json.RawMessage
 	flush := func() {
 		if pending.Len() == 0 {
 			return
@@ -187,12 +193,7 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 		pending.Reset()
 	}
 
-	streamErr := s.cfg.Provider.Stream(ctx, model.StreamRequest{
-		Model:          run.ModelRef,
-		Messages:       contextMessages,
-		PromptCacheKey: run.ConversationID,
-		RunID:          run.ID,
-	}, func(ev model.StreamEvent) {
+	streamErr := s.cfg.Provider.Stream(ctx, request, func(ev model.StreamEvent) {
 		switch ev.Kind {
 		case model.EventTextDelta:
 			full.WriteString(ev.Text)
@@ -204,12 +205,14 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 			usage = ev.Usage
 			s.emit(persistCtx, stream, run.ID, domain.EventModelUsage,
 				domain.UsagePayload{Envelope: envelope(), Usage: toDomainUsage(*ev.Usage)})
+		case model.EventContentBlocks:
+			contentBlocks = append(contentBlocks, ev.ContentBlocks...)
 		}
 	})
 	flush()
 
-	if full.Len() > 0 {
-		s.persistAssistant(persistCtx, run, full.String())
+	if full.Len() > 0 || len(contentBlocks) > 0 {
+		s.persistAssistant(persistCtx, run, full.String(), contentBlocks)
 	}
 	s.persistUsage(persistCtx, run, usage)
 
@@ -238,12 +241,35 @@ func (s *Service) fail(ctx, persistCtx context.Context, run *domain.Run, stream 
 		domain.ErrorPayload{Envelope: envelope(), Message: cause.Error()})
 }
 
-func (s *Service) persistAssistant(ctx context.Context, run *domain.Run, text string) {
+func (s *Service) persistAssistant(ctx context.Context, run *domain.Run, text string, blocks []json.RawMessage) {
+	parts := make([]domain.ContentPart, 0, len(blocks)+1)
+	hasText := false
+	for _, raw := range blocks {
+		var probe struct {
+			Type     string `json:"type"`
+			Text     string `json:"text"`
+			Thinking string `json:"thinking"`
+		}
+		if json.Unmarshal(raw, &probe) != nil {
+			continue
+		}
+		part := domain.ContentPart{Type: probe.Type, Raw: append(json.RawMessage(nil), raw...)}
+		switch probe.Type {
+		case "text":
+			part.Text, hasText = probe.Text, true
+		case "thinking":
+			part.Text = probe.Thinking
+		}
+		parts = append(parts, part)
+	}
+	if !hasText {
+		parts = append([]domain.ContentPart{{Type: "text", Text: text}}, parts...)
+	}
 	message := &domain.Message{
 		ID:             s.cfg.NewID(),
 		ConversationID: run.ConversationID,
 		Role:           domain.RoleAssistant,
-		Content:        domain.TextContent(text),
+		Content:        parts,
 		CreatedAt:      s.cfg.Now(),
 	}
 	s.store.AddMessage(ctx, message)
@@ -257,6 +283,8 @@ func toDomainUsage(u model.Usage) domain.Usage {
 		OutputTokens:     u.OutputTokens,
 		CacheReadTokens:  u.CacheReadTokens,
 		CacheWriteTokens: u.CacheWriteTokens,
+		UncachedTokens:   u.UncachedTokens,
+		Estimated:        u.Estimated,
 	}
 }
 

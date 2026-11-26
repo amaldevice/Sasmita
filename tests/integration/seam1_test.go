@@ -34,14 +34,14 @@ type orderCheckingProvider struct {
 func (p *orderCheckingProvider) Name() string { return p.inner.Name() }
 
 func (p *orderCheckingProvider) Stream(ctx context.Context, req model.StreamRequest, emit func(model.StreamEvent)) error {
-	msgs, err := p.store.ListMessages(ctx, req.PromptCacheKey, 100)
+	msgs, err := p.store.ListMessages(ctx, req.ConversationID, 100)
 	if err != nil {
 		return err
 	}
 	if len(msgs) == 0 || msgs[len(msgs)-1].Role != domain.RoleUser {
 		p.t.Errorf("user message was not persisted before the provider request")
 	}
-	runs, err := p.store.ListRuns(ctx, req.PromptCacheKey)
+	runs, err := p.store.ListRuns(ctx, req.ConversationID)
 	if err != nil {
 		return err
 	}
