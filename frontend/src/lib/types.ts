@@ -70,6 +70,18 @@ export interface RunHandle {
   runId: string;
 }
 
+/** One visible step in the activity timeline (ticket #22). */
+export interface ToolStep {
+  callId: string;
+  name: string;
+  phase: 'proposed' | 'executed' | 'artifact' | 'failed';
+  risk?: string;
+  output?: string;
+  summary?: string;
+  artifactRef?: string;
+  at: string;
+}
+
 export type RunStatus =
   | 'queued'
   | 'preparing'

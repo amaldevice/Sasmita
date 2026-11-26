@@ -1,6 +1,6 @@
 import { answerFromSnapshot } from './activity';
 import { usageFromEvent, type UsageData } from './usage';
-import type { RunEvent, RunSnapshot } from './types';
+import type { RunEvent, RunSnapshot, ToolStep } from './types';
 
 /**
  * Reduces the versioned RunEvent stream into the answer shown in the chat.
@@ -16,7 +16,16 @@ export class ChatRun {
   error = $state('');
   deltaCount = $state(0);
   usage = $state<UsageData | null>(null);
-  private startedAt = 0;
+  steps = $state<ToolStep[]>([]);
+  startedAt = $state('');
+  lastEventAt = $state('');
+
+  /** Elapsed seconds between the first and most recent recorded event. */
+  elapsedSeconds = $derived.by(() => {
+    if (!this.startedAt || !this.lastEventAt) return 0;
+    const span = Date.parse(this.lastEventAt) - Date.parse(this.startedAt);
+    return Number.isFinite(span) ? Math.max(0, Math.floor(span / 1000)) : 0;
+  });
 
   setRunId(id: string): void {
     this.runId = id;
@@ -31,7 +40,9 @@ export class ChatRun {
     this.error = '';
     this.deltaCount = 0;
     this.usage = null;
-    this.startedAt = 0;
+    this.steps = [];
+    this.startedAt = '';
+    this.lastEventAt = '';
   }
 
   /** Rebuild stream-derived UI state from GetRunSnapshot after reconnect. */
@@ -49,15 +60,22 @@ export class ChatRun {
     // Monotonic sequence guard: stale or duplicate events are ignored.
     if (event.seq > 0 && event.seq <= this.seq) return;
     this.seq = event.seq;
+    if (!this.startedAt && event.timestamp) this.startedAt = event.timestamp;
+    if (event.timestamp) this.lastEventAt = event.timestamp;
     const payload = event.payload as {
       version?: number;
       text?: string;
       message?: string;
+      callId?: string;
+      name?: string;
+      risk?: string;
+      output?: string;
+      summary?: string;
+      artifactRef?: string;
     };
     switch (event.type) {
       case 'run.queued':
         this.status = 'queued';
-        if (!this.startedAt) this.startedAt = Date.parse(event.timestamp);
         break;
       case 'run.preparing':
         this.status = 'preparing';
@@ -65,7 +83,6 @@ export class ChatRun {
       case 'run.started':
         this.status = 'running';
         this.streaming = true;
-        if (!this.startedAt) this.startedAt = Date.parse(event.timestamp);
         break;
       case 'run.cancelling':
         this.status = 'cancelling';
@@ -75,6 +92,26 @@ export class ChatRun {
         // Approval policy is a later ticket; the run state can represent the wait.
         this.status = 'awaiting_approval';
         break;
+      case 'tool.proposed':
+      case 'tool.executed':
+      case 'tool.artifact':
+      case 'tool.failed': {
+        const phase = event.type.slice('tool.'.length) as ToolStep['phase'];
+        this.steps = [
+          ...this.steps,
+          {
+            callId: payload.callId ?? '',
+            name: payload.name ?? '',
+            phase,
+            risk: payload.risk,
+            output: payload.output,
+            summary: payload.summary,
+            artifactRef: payload.artifactRef,
+            at: event.timestamp,
+          },
+        ];
+        break;
+      }
       case 'run.interrupted':
         this.status = 'interrupted';
         this.streaming = false;
@@ -87,7 +124,7 @@ export class ChatRun {
         const usage = usageFromEvent(event);
         if (usage) {
           usage.durationMs = this.startedAt
-            ? Math.max(0, Date.parse(event.timestamp) - this.startedAt)
+            ? Math.max(0, Date.parse(event.timestamp) - Date.parse(this.startedAt))
             : 0;
           this.usage = usage;
         }
