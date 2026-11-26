@@ -1,6 +1,7 @@
 package migrations_test
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -49,16 +50,16 @@ func TestMigrateFromEmptyAndIdempotent(t *testing.T) {
 		found[name] = true
 	}
 	for _, table := range []string{
-		"schema_migrations", "schema_migration_files", "projects", "conversations", "messages",
-		"runs", "run_events", "usage_records",
+		"schema_migrations", "schema_migration_files",
+		"projects", "conversations", "messages", "runs", "run_events", "usage_records",
+		"provider_profiles",
 	} {
 		if !found[table] {
 			t.Errorf("table %q was not created", table)
 		}
 	}
 
-	// Migration 004 must apply even while another ticket's 002 is not yet in
-	// this branch; its retry linkage column is the proof.
+	// Migration 004 adds the retry linkage on top of #16/#20's schema.
 	columns, err := db.Query(`PRAGMA table_info(runs)`)
 	if err != nil {
 		t.Fatal(err)
@@ -78,5 +79,52 @@ func TestMigrateFromEmptyAndIdempotent(t *testing.T) {
 	}
 	if !hasOriginal {
 		t.Error("migration 004 did not add runs.original_run_id")
+	}
+}
+
+// A fresh database must apply all four ticket migrations exactly once, in
+// filename order, and end at version 4 (TAD §13.4).
+func TestMigrateAppliesAllFourFilesExactlyOnce(t *testing.T) {
+	db, err := sqlite.Open(filepath.Join(t.TempDir(), "sasmita.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := migrations.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrations.Migrate(db); err != nil {
+		t.Fatalf("second Migrate: %v", err)
+	}
+
+	rows, err := db.Query(`SELECT name FROM schema_migration_files ORDER BY name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var applied []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		applied = append(applied, name)
+	}
+	want := []string{"001_init.sql", "002_init.sql", "003_init.sql", "004_init.sql"}
+	if fmt.Sprint(applied) != fmt.Sprint(want) {
+		t.Fatalf("applied migrations = %v, want %v", applied, want)
+	}
+	if migrations.Latest != 4 {
+		t.Fatalf("migrations.Latest = %d, want 4", migrations.Latest)
+	}
+	v, err := migrations.Version(db)
+	if err != nil || v != 4 {
+		t.Fatalf("schema version = %d (err %v), want 4", v, err)
+	}
+	for _, table := range []string{"provider_profiles", "conversation_fts"} {
+		var name string
+		if err := db.QueryRow(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&name); err != nil {
+			t.Errorf("table from #16/#20 migration %q missing: %v", table, err)
+		}
 	}
 }
