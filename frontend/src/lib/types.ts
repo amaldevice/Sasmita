@@ -2,7 +2,7 @@ import type { UsageData } from './usage';
 
 export type Role = 'system' | 'user' | 'assistant';
 
-export type ShellView = 'chat' | 'search' | 'projects' | 'artifacts' | 'settings';
+export type ShellView = 'chat' | 'baca' | 'search' | 'projects' | 'artifacts' | 'settings';
 
 export interface Conversation {
   id: string;

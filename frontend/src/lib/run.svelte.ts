@@ -56,6 +56,8 @@ export class ChatRun {
     this.steps = [];
     this.approval = null;
     this.blocks = [];
+    this.visualPending = false;
+    this.artifactRef = '';
     this.startedAt = '';
     this.lastEventAt = '';
   }
@@ -113,6 +115,13 @@ export class ChatRun {
       case 'tool.failed':
       case 'tool.denied': {
         if (event.type === 'tool.executed' || event.type === 'tool.denied') this.approval = null;
+        const visualTool = payload.name === 'render_ui' || payload.name === 'create_artifact';
+        // A visual tool call opens the skeleton; its result closes it.
+        if (visualTool && event.type === 'tool.proposed') this.visualPending = true;
+        if (visualTool && (event.type === 'tool.executed' || event.type === 'tool.artifact')) {
+          this.visualPending = false;
+        }
+        if (payload.artifactRef) this.artifactRef = payload.artifactRef;
         const phase = event.type.slice('tool.'.length) as ToolStep['phase'];
         this.steps = [
           ...this.steps,
@@ -132,10 +141,12 @@ export class ChatRun {
       case 'run.interrupted':
         this.status = 'interrupted';
         this.streaming = false;
+        this.visualPending = false;
         break;
       case 'ui.block': {
         const block = parseUIBlock(event.payload);
         if (block) this.blocks = [...this.blocks, block];
+        this.visualPending = false;
         break;
       }
       case 'model.text_delta':
@@ -156,17 +167,20 @@ export class ChatRun {
         this.status = 'completed';
         this.streaming = false;
         this.approval = null;
+        this.visualPending = false;
         break;
       case 'run.failed':
         this.status = 'failed';
         this.streaming = false;
         this.approval = null;
+        this.visualPending = false;
         this.error = payload.message ?? 'Run stopped';
         break;
       case 'run.cancelled':
         this.status = 'cancelled';
         this.streaming = false;
         this.approval = null;
+        this.visualPending = false;
         this.cancelling = false;
         this.error = payload.message ?? 'Run dibatalkan';
         break;
