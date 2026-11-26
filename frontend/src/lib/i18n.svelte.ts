@@ -40,6 +40,12 @@ const strings = {
     english: 'English',
     open: 'Buka',
     newTitle: 'Percakapan baru',
+    mode: 'Mode',
+    model: 'Model',
+    comingLater: 'Segera hadir',
+    rereadWarning: 'Dibaca ulang penuh',
+    tokens: 'token',
+    continue: 'Lanjutkan',
   },
   en: {
     newChat: 'New chat',
@@ -78,6 +84,12 @@ const strings = {
     english: 'English',
     open: 'Open',
     newTitle: 'New chat',
+    mode: 'Mode',
+    model: 'Model',
+    comingLater: 'Coming later',
+    rereadWarning: 'Re-read at full price',
+    tokens: 'tokens',
+    continue: 'Continue',
   },
 } as const;
 

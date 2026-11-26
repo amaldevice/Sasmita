@@ -259,6 +259,9 @@ func (a Adapter) Name() string {
 	return "anthropic"
 }
 
+// ProviderKind identifies the wire format for switching active contexts.
+func (a Adapter) ProviderKind() string { return model.ProviderAnthropicCompatible }
+
 type streamEvent struct {
 	Type    string `json:"type"`
 	Message *struct {

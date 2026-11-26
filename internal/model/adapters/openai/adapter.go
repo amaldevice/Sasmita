@@ -98,6 +98,10 @@ func (a Adapter) Name() string {
 	return "openai"
 }
 
+// ProviderKind identifies the wire format so a model/provider switch can drop
+// raw blocks that belong to another provider.
+func (a Adapter) ProviderKind() string { return model.ProviderOpenAICompatible }
+
 type wireChunk struct {
 	Choices []struct {
 		Delta struct {

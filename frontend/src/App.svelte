@@ -3,6 +3,7 @@
   import Activity from './lib/Activity.svelte';
   import Composer from './lib/Composer.svelte';
   import Connections from './lib/Connections.svelte';
+  import { createConnectionIPC, type ModelInfo } from './lib/connections';
   import EmptyState from './lib/EmptyState.svelte';
   import InterruptedRun from './lib/InterruptedRun.svelte';
   import Icon from './lib/Icon.svelte';
@@ -16,6 +17,7 @@
     shouldShowOnboarding,
     type ExamplePrompt,
   } from './lib/onboarding';
+  import { createModeIPC, modeLabel, type Mode, type ModeIPC } from './lib/modes';
   import { ChatRun } from './lib/run.svelte';
   import { theme } from './lib/theme.svelte';
   import type { Conversation, ConversationDetail, Project, RunRecord, SearchResult, ShellView } from './lib/types';
@@ -49,6 +51,12 @@
   let moveProject = $state('');
   let showOnboarding = $state(false);
   let examplePrompts = $state<ExamplePrompt[]>([]);
+  let modes = $state<Mode[]>([]);
+  let models = $state<ModelInfo[]>([]);
+  let modeId = $state('chat');
+  let modelId = $state('');
+  // Injected once at mount; not reactive state (the shell never swaps it).
+  let modeIPC: ModeIPC | null = null;
 
   // A conversation without a project has no root_uri, so no folder action.
   let hasFolder = $derived.by(() => {
@@ -60,13 +68,22 @@
 
   onMount(async () => {
     ipc = createIPC();
+    modeIPC = createModeIPC(ipc);
     const onboarding = createOnboardingIPC();
-    const [recent, projectList, prompts] = await Promise.all([
+    const connections = createConnectionIPC();
+    const [recent, projectList, prompts, modeList, profiles] = await Promise.all([
       ipc.listRecentConversations('', 50),
       ipc.listProjects(),
       onboarding.listExamplePrompts(),
+      modeIPC.listModes(),
+      connections.listProfiles(),
     ]);
     examplePrompts = prompts;
+    modes = modeList;
+    if (profiles.length > 0) {
+      models = await connections.listModels(profiles[0].id);
+      modelId = models[0]?.id ?? 'gpt-test';
+    }
     showOnboarding = shouldShowOnboarding();
     conversations = recent.items;
     projects = projectList;
@@ -140,6 +157,20 @@
     moving = false;
   }
 
+  async function estimateSelection(kind: 'mode' | 'model', value: string) {
+    if (!modeIPC) return { estimatedTokens: 0, warn: false, estimated: true };
+    return modeIPC.estimateSwitch({
+      conversationId: selectedId,
+      modelRef: kind === 'model' ? value : modelId,
+      modeId: kind === 'mode' ? value : modeId,
+    });
+  }
+
+  function selectChoice(kind: 'mode' | 'model', value: string) {
+    if (kind === 'mode') modeId = value;
+    else modelId = value;
+  }
+
   async function send(text: string) {
     if (!ipc || !detail || run.streaming) return;
     const userMessage = {
@@ -152,7 +183,7 @@
     detail.messages = [...detail.messages, userMessage];
     run.begin();
     const handle = await ipc.startRun(
-      { conversationId: selectedId, text, modelRef: 'gpt-test', harnessId: 'chat' },
+      { conversationId: selectedId, text, modelRef: modelId || 'gpt-test', harnessId: modeId },
       (event) => run.apply(event),
     );
     run.setRunId(handle.runId);
@@ -214,7 +245,7 @@
       <header>
         <div class="title-block">
           <h1>{detail?.conversation.title ?? i18n.t('newChat')}</h1>
-          <span class="mode">{i18n.t('modeChat')}</span>
+          <span class="mode">{modeLabel(modes.find((m) => m.id === modeId), i18n.locale)}</span>
         </div>
         <div class="actions">
           {#if hasFolder}
@@ -304,7 +335,16 @@
         {/if}
       </div>
 
-      <Composer bind:value={draft} onsubmit={send} />
+      <Composer
+        bind:value={draft}
+        onsubmit={send}
+        {modes}
+        {models}
+        {modeId}
+        {modelId}
+        estimate={estimateSelection}
+        onselect={selectChoice}
+      />
     {:else if view === 'search'}
       <section class="view" data-testid="search-view">
         <h1>{i18n.t('searchConversations')}</h1>

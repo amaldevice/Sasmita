@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/amaldevice/sasmita/internal/agent"
+	ctxlayout "github.com/amaldevice/sasmita/internal/context"
 	"github.com/amaldevice/sasmita/internal/domain"
 	"github.com/amaldevice/sasmita/internal/model"
 	"github.com/amaldevice/sasmita/internal/persistence/repositories"
@@ -48,9 +49,11 @@ type Config struct {
 }
 
 type Service struct {
-	store   *repositories.Store
-	cfg     Config
-	runtime *runtime.Manager
+	store        *repositories.Store
+	cfg          Config
+	builder      ctxlayout.Builder
+	runtime      *runtime.Manager
+	providerKind domain.ProviderKind
 }
 
 func New(store *repositories.Store, cfg Config) *Service {
@@ -88,7 +91,18 @@ func New(store *repositories.Store, cfg Config) *Service {
 	if cfg.Runtime == nil {
 		cfg.Runtime = runtime.NewManager()
 	}
-	return &Service{store: store, cfg: cfg, runtime: cfg.Runtime}
+	// Undeclared providers keep every raw block (the pre-switch behaviour).
+	var kind domain.ProviderKind
+	if aware, ok := cfg.Provider.(model.ProviderKindAware); ok {
+		kind = domain.ProviderKind(aware.ProviderKind())
+	}
+	return &Service{
+		store:        store,
+		cfg:          cfg,
+		builder:      ctxlayout.Builder{Tools: cfg.Tools},
+		runtime:      cfg.Runtime,
+		providerKind: kind,
+	}
 }
 
 func randomID() string {
