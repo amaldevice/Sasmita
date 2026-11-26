@@ -44,7 +44,7 @@ Hasil ticket #12 (map #1). Sumber: prototype di branch `prototype/ui-design` (`p
 - Visual: label langsung di diagram (tanpa legenda kotak warna), ringkasan satu kalimat (tanpa baris angka besar), langkah bernomor hanya bila urutan bermakna.
 - Usage (opsional, setting "selalu tampilkan"): monospace, `waktu ↑ input ↓ output % cache`.
 - Empty state: judul + kalimat + 4 kartu saran 2×2.
-- Approval: kartu bergaris `--attn` yang berdenyut sampai ditangani; tombol primer ink.
+- Approval: kartu inline bergaris `--attn` yang berdenyut sampai ditangani (berhenti dengan `prefers-reduced-motion`); memuat aksi, sumber daya, dan dampak dalam bahasa sederhana, dengan tombol "Izinkan sekali", "Selalu izinkan di proyek ini", dan "Tolak". Badge sidebar memakai `--attn` untuk run yang menunggu, `--ok` untuk yang selesai di percakapan lain.
 
 ## Gerak
 

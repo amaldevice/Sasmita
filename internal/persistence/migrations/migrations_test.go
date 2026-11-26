@@ -113,7 +113,7 @@ func TestMigrateAppliesAllFilesExactlyOnce(t *testing.T) {
 	}
 	// Derive the expectation from the files actually present so parallel
 	// ticket lanes can add migrations without editing this invariant test.
-	// The derived list includes 007 from #18 and 013 from this ticket.
+	// The derived list includes 007 from #18, 010 from #23 and 013 from #28.
 	names, err := filepath.Glob("*_init.sql")
 	if err != nil {
 		t.Fatal(err)

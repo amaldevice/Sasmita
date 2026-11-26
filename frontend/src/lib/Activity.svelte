@@ -22,6 +22,8 @@
         return 'dijalankan';
       case 'artifact':
         return 'artefak';
+      case 'denied':
+        return 'ditolak';
       default:
         return 'gagal';
     }

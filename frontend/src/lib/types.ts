@@ -117,13 +117,33 @@ export interface RunHandle {
 export interface ToolStep {
   callId: string;
   name: string;
-  phase: 'proposed' | 'executed' | 'artifact' | 'failed';
+  phase: 'proposed' | 'executed' | 'artifact' | 'failed' | 'denied';
   risk?: string;
   output?: string;
   summary?: string;
   artifactRef?: string;
   at: string;
 }
+
+/** One pending approval, sent as plain words from the policy engine. */
+export interface Approval {
+  approvalId: string;
+  runId: string;
+  callId: string;
+  toolId: string;
+  status: string;
+  action: string;
+  resource: string;
+  impact: string;
+  message: string;
+  argsHash: string;
+  policyHash: string;
+}
+
+export type ApprovalDecision = 'allow_once' | 'always' | 'deny';
+
+/** Sidebar signal for runs that need attention outside the open chat. */
+export type SidebarBadge = 'waiting' | 'finished';
 
 export type RunStatus =
   | 'queued'
