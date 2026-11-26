@@ -2,6 +2,8 @@ module github.com/amaldevice/sasmita
 
 go 1.27.0
 
+toolchain go1.27.3
+
 require modernc.org/sqlite v1.63.0
 
 require (

@@ -35,7 +35,7 @@ export interface RunEvent {
   seq: number;
   type: string;
   timestamp: string;
-  payload: Record<string, unknown>;
+  payload: unknown;
 }
 
 export interface RunSnapshot {

@@ -52,6 +52,7 @@ type RunHandleDTO struct {
 	ConversationID string
 	Events         <-chan domain.RunEvent
 	Cancel         func()
+	Abort          func()
 }
 
 type RunSnapshotDTO struct {
@@ -132,6 +133,7 @@ func (s *Service) StartRun(ctx context.Context, req StartRunRequestDTO) (RunHand
 		ConversationID: handle.ConversationID,
 		Events:         handle.Events(),
 		Cancel:         handle.Cancel,
+		Abort:          handle.Abort,
 	}, nil
 }
 

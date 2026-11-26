@@ -1,7 +1,10 @@
+import { Channel, isMyGo } from 'mygo-runtime';
 import replay from '../fixtures/run-events.json';
+import { shellService } from '../mygo';
 import type {
   Conversation,
   ConversationDetail,
+  Role,
   RunEvent,
   RunHandle,
   RunSnapshot,
@@ -21,17 +24,10 @@ export interface IPC {
   getRunSnapshot(runId: string): Promise<RunSnapshot>;
 }
 
-/** Minimal bridge contract implemented by the desktop shell adapter. */
-export interface MyGoBridge {
-  invoke(name: string, payload?: unknown): Promise<unknown>;
-  subscribeRunEvents(runId: string, onEvent: (event: RunEvent) => void): () => void;
-}
-
+/** Uses the TypeScript client generated from the Go bindings by `mygo generate`. */
 export class MyGoIPC implements IPC {
-  constructor(private bridge: MyGoBridge) {}
-
   createConversation(projectId: string, title: string, harnessId: string): Promise<Conversation> {
-    return this.bridge.invoke('CreateConversation', { projectId, title, harnessId }) as Promise<Conversation>;
+    return shellService.createConversation(projectId, title, harnessId);
   }
 
   listConversations(
@@ -39,24 +35,25 @@ export class MyGoIPC implements IPC {
     cursor: string,
     limit: number,
   ): Promise<{ items: Conversation[]; nextCursor: string }> {
-    return this.bridge.invoke('ListConversations', { projectId, cursor, limit }) as Promise<{
-      items: Conversation[];
-      nextCursor: string;
-    }>;
+    return shellService.listConversations(projectId, cursor, limit);
   }
 
-  getConversation(conversationId: string): Promise<ConversationDetail> {
-    return this.bridge.invoke('GetConversation', { conversationId }) as Promise<ConversationDetail>;
+  async getConversation(conversationId: string): Promise<ConversationDetail> {
+    const detail = await shellService.getConversation(conversationId);
+    return {
+      conversation: detail.conversation,
+      messages: detail.messages.map((m) => ({ ...m, role: m.role as Role })),
+    };
   }
 
   async startRun(req: StartRunRequest, onEvent: (event: RunEvent) => void): Promise<RunHandle> {
-    const handle = (await this.bridge.invoke('StartRun', req)) as RunHandle;
-    this.bridge.subscribeRunEvents(handle.runId, onEvent);
-    return handle;
+    const events = new Channel<RunEvent>((event) => onEvent(event));
+    const runId = await shellService.startRun(req, events);
+    return { runId, cancel: () => events.close() };
   }
 
   getRunSnapshot(runId: string): Promise<RunSnapshot> {
-    return this.bridge.invoke('GetRunSnapshot', { runId }) as Promise<RunSnapshot>;
+    return shellService.getRunSnapshot(runId);
   }
 }
 
@@ -203,10 +200,7 @@ export class FakeIPC implements IPC {
 export function createIPC(): IPC {
   const params = new URLSearchParams(location.search);
   if (params.get('fake') === '1') return new FakeIPC();
-  const bridge = (window as unknown as { mygo?: MyGoBridge }).mygo;
-  if (bridge && typeof bridge.invoke === 'function' && typeof bridge.subscribeRunEvents === 'function') {
-    return new MyGoIPC(bridge);
-  }
-  // Dev fallback when no shell bridge is injected (plain browser preview).
+  if (isMyGo()) return new MyGoIPC();
+  // Dev fallback when opened in a plain browser without the shell bridge.
   return new FakeIPC();
 }

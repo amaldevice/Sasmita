@@ -1,0 +1,11 @@
+{
+  "name": "Sasmita",
+  "identifier": "dev.sasmita.app",
+  "version": "0.1.0",
+  "devUrl": "http://127.0.0.1:5173",
+  "devCommand": "npm --prefix ../.. run dev",
+  "buildCommand": "npm --prefix ../.. run build",
+  "frontendDist": "../../frontend-dist",
+  "bindings": "../../frontend/src/mygo.ts",
+  "out": "../../build"
+}
