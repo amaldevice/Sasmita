@@ -271,7 +271,7 @@ func TestSeam1CallToolPolicyUsesRealToolID(t *testing.T) {
 	if err != nil || approval.ToolID != "write_artifact" {
 		t.Fatalf("stored approval = %+v (err %v)", approval, err)
 	}
-	if err := svc.ResolveApproval(ctx, approvalID, domain.ApprovalAllowOnce, nil); err != nil {
+	if err := svc.ResolveApproval(ctx, approvalID, domain.ApprovalAllowOnce, approval.Arguments); err != nil {
 		t.Fatal(err)
 	}
 	events := drain(t, h)

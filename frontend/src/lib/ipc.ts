@@ -47,7 +47,8 @@ export interface IPC {
   resumeRun(runId: string, onEvent: (event: RunEvent) => void): Promise<RunHandle>;
   getRunSnapshot(runId: string): Promise<RunSnapshot>;
   listPendingApprovals(conversationId: string): Promise<Approval[]>;
-  resolveApproval(approvalId: string, decision: ApprovalDecision, args?: string): Promise<void>;
+  /** args is the exact bound payload; an empty or changed value must be rejected. */
+  resolveApproval(approvalId: string, decision: ApprovalDecision, args: string): Promise<void>;
   /** Bounded, read-only fetch of a large dataset referenced by a UI block. */
   getUIData(ref: string, limit: number): Promise<UIData>;
   /** Persist a committed, debounced view-local state patch as an append-only event. */
@@ -137,7 +138,8 @@ export class MyGoIPC implements IPC {
     return listPendingApprovalsBinding(conversationId);
   }
 
-  async resolveApproval(approvalId: string, decision: ApprovalDecision, args = ''): Promise<void> {
+  async resolveApproval(approvalId: string, decision: ApprovalDecision, args: string): Promise<void> {
+    if (!args) throw new Error('approval arguments are missing');
     await resolveApprovalBinding(approvalId, decision, args);
   }
 
@@ -315,11 +317,13 @@ export class FakeIPC implements IPC {
       .map((stored) => structuredClone(stored.card));
   }
 
-  async resolveApproval(approvalId: string, decision: ApprovalDecision, args = ''): Promise<void> {
+  async resolveApproval(approvalId: string, decision: ApprovalDecision, args: string): Promise<void> {
     const stored = this.state.approvals[approvalId];
     if (!stored) throw new Error(`approval ${approvalId} not found`);
     if (stored.decision !== null) return;
-    void args; // the backend revalidates the bound argument hash; the replay only records the choice
+    if (!args || args !== (stored.card.arguments ?? '')) {
+      throw new Error('approval arguments changed');
+    }
     stored.decision = decision;
     this.save();
     const wake = this.decisions.get(stored.runId);

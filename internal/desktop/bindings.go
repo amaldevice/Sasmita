@@ -150,8 +150,9 @@ type RunDTO struct {
 	OriginalRunID  string `json:"originalRunId,omitempty"`
 }
 
-// ApprovalDTO is the inline card's data. Raw arguments stay in SQLite; only
-// plain-language detail crosses IPC.
+// ApprovalDTO is the inline card's data. The exact arguments cross IPC so the
+// UI can echo them on resolve; SQLite remains the source of truth for the hash
+// recheck. Only plain-language detail is shown on the card.
 type ApprovalDTO struct {
 	ApprovalID string `json:"approvalId"`
 	RunID      string `json:"runId"`
@@ -162,6 +163,7 @@ type ApprovalDTO struct {
 	Resource   string `json:"resource"`
 	Impact     string `json:"impact"`
 	Message    string `json:"message"`
+	Arguments  string `json:"arguments,omitempty"`
 	ArgsHash   string `json:"argsHash"`
 	PolicyHash string `json:"policyHash"`
 	CreatedAt  string `json:"createdAt"`
@@ -481,7 +483,8 @@ func approvalDTO(a domain.Approval) ApprovalDTO {
 	return ApprovalDTO{
 		ApprovalID: a.ID, RunID: a.RunID, CallID: a.CallID, ToolID: a.ToolID,
 		Status: a.Status, Action: a.Action, Resource: a.Resource, Impact: a.Impact,
-		Message: a.Message, ArgsHash: a.ArgsHash, PolicyHash: a.PolicyHash,
+		Message: a.Message, Arguments: string(a.Arguments),
+		ArgsHash: a.ArgsHash, PolicyHash: a.PolicyHash,
 		CreatedAt: a.CreatedAt.UTC().Format(time.RFC3339Nano),
 	}
 }

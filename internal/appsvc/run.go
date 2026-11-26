@@ -464,7 +464,8 @@ func (s *Service) persistUsage(ctx context.Context, run *domain.Run, u *model.Us
 }
 
 // emitApprovalRequired persists the waiting state and streams the inline card.
-// Arguments stay out of IPC; the stored approval keeps them for revalidation.
+// The exact arguments travel with the card so the UI can echo them back; the
+// stored approval remains the source of truth for revalidation at resolve.
 func (s *Service) emitApprovalRequired(ctx context.Context, stream *eventStream, runID string, a *domain.Approval) {
 	if a == nil {
 		return
@@ -475,7 +476,8 @@ func (s *Service) emitApprovalRequired(ctx context.Context, stream *eventStream,
 	raw, err := json.Marshal(domain.ApprovalPayload{
 		Envelope: envelope(), ApprovalID: a.ID, CallID: a.CallID, ToolID: a.ToolID,
 		Status: string(domain.RunAwaitingApproval), Action: a.Action, Resource: a.Resource,
-		Impact: a.Impact, Message: a.Message, ArgsHash: a.ArgsHash, PolicyHash: a.PolicyHash,
+		Impact: a.Impact, Message: a.Message, Arguments: a.Arguments,
+		ArgsHash: a.ArgsHash, PolicyHash: a.PolicyHash,
 	})
 	if err != nil {
 		return

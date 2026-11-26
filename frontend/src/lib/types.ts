@@ -136,6 +136,8 @@ export interface Approval {
   resource: string;
   impact: string;
   message: string;
+  /** Exact bound arguments, echoed back on resolve for hash revalidation. */
+  arguments?: string;
   argsHash: string;
   policyHash: string;
 }

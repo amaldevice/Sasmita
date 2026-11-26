@@ -33,6 +33,7 @@
   import { usageSettings } from './lib/usage-settings.svelte';
   import Usage from './lib/Usage.svelte';
   import type {
+    Approval,
     ApprovalDecision,
     Conversation,
     ConversationDetail,
@@ -179,10 +180,10 @@
     badges = next;
   }
 
-  async function resolveApproval(approvalId: string, decision: ApprovalDecision) {
+  async function resolveApproval(approval: Approval, decision: ApprovalDecision) {
     if (!ipc) return;
     run.clearApproval();
-    await ipc.resolveApproval(approvalId, decision);
+    await ipc.resolveApproval(approval.approvalId, decision, approval.arguments ?? '');
   }
 
   // On terminal, reload canonical history from the typed binding so the
@@ -439,7 +440,7 @@
 
         {#if run.approval}
           {@const approval = run.approval}
-          <ApprovalCard {approval} onresolve={(decision) => void resolveApproval(approval.approvalId, decision)} />
+          <ApprovalCard {approval} onresolve={(decision) => void resolveApproval(approval, decision)} />
         {/if}
 
         <div class="reading-column" data-testid="reading-column" data-view={readingView} data-format={format}>

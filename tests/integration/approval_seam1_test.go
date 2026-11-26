@@ -151,7 +151,7 @@ func TestSeam1AllowOnceExecutesAndCompletes(t *testing.T) {
 		t.Fatalf("stored approval = %+v", approval)
 	}
 
-	if err := svc.ResolveApproval(context.Background(), approval.ID, domain.ApprovalAllowOnce, nil); err != nil {
+	if err := svc.ResolveApproval(context.Background(), approval.ID, domain.ApprovalAllowOnce, approval.Arguments); err != nil {
 		t.Fatalf("ResolveApproval: %v", err)
 	}
 	events := drain(t, h)
@@ -175,7 +175,7 @@ func TestSeam1AllowOnceExecutesAndCompletes(t *testing.T) {
 func TestSeam1DenyDoesNotExecuteTool(t *testing.T) {
 	svc, _ := newApprovalService(t, filepath.Join(t.TempDir(), "sasmita.db"), &approvalProvider{})
 	h, _, approval := startUntilApproval(t, svc)
-	if err := svc.ResolveApproval(context.Background(), approval.ID, domain.ApprovalDeny, nil); err != nil {
+	if err := svc.ResolveApproval(context.Background(), approval.ID, domain.ApprovalDeny, approval.Arguments); err != nil {
 		t.Fatalf("ResolveApproval: %v", err)
 	}
 	events := drain(t, h)
@@ -198,10 +198,44 @@ func TestSeam1ChangedArgumentsInvalidateApproval(t *testing.T) {
 	if !errors.Is(err, domain.ErrApprovalStale) {
 		t.Fatalf("ResolveApproval with changed args = %v, want ErrApprovalStale", err)
 	}
-	if err := svc.ResolveApproval(context.Background(), approval.ID, domain.ApprovalAllowOnce, nil); err != nil {
+	if err := svc.ResolveApproval(context.Background(), approval.ID, domain.ApprovalAllowOnce, approval.Arguments); err != nil {
 		t.Fatalf("ResolveApproval with original args: %v", err)
 	}
 	_ = drain(t, h)
+}
+
+// Seam 1: a decision without the bound arguments cannot be replayed. The card
+// carries the arguments so the UI can echo the exact request it approved, and
+// Resolve always re-verifies both the arguments hash and the policy snapshot.
+func TestSeam1ResolveRequiresBoundArguments(t *testing.T) {
+	ctx := context.Background()
+	svc, store := newApprovalService(t, filepath.Join(t.TempDir(), "sasmita.db"), &approvalProvider{})
+	h, ev, approval := startUntilApproval(t, svc)
+
+	var payload domain.ApprovalPayload
+	if err := json.Unmarshal(ev.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Arguments) == 0 || string(payload.Arguments) != string(approval.Arguments) {
+		t.Fatalf("card does not carry the bound arguments: %s", ev.Payload)
+	}
+	if err := svc.ResolveApproval(ctx, approval.ID, domain.ApprovalAllowOnce, nil); !errors.Is(err, domain.ErrApprovalStale) {
+		t.Fatalf("resolve without arguments = %v, want ErrApprovalStale", err)
+	}
+	run, err := store.GetRun(ctx, h.RunID)
+	if err != nil || run.Status != domain.RunAwaitingApproval {
+		t.Fatalf("run after unverifiable resolve = %+v (err %v)", run, err)
+	}
+	stored, err := store.GetApproval(ctx, approval.ID)
+	if err != nil || stored.Status != domain.ApprovalPending {
+		t.Fatalf("approval after unverifiable resolve = %+v (err %v)", stored, err)
+	}
+	if err := svc.ResolveApproval(ctx, approval.ID, domain.ApprovalAllowOnce, approval.Arguments); err != nil {
+		t.Fatalf("resolve with bound arguments: %v", err)
+	}
+	if !eventTypes(drain(t, h))[domain.EventToolExecuted] {
+		t.Fatal("tool did not execute after a verified resolve")
+	}
 }
 
 // Seam 1: the approval wait, its decision and the agent checkpoint survive a
@@ -226,7 +260,7 @@ func TestSeam1ApprovalAndCheckpointResumeAfterRestart(t *testing.T) {
 	if _, ok, err := store.LoadCheckpoint(ctx, "approval."+originalID); err != nil || !ok {
 		t.Fatalf("checkpoint after restart: found=%v err=%v", ok, err)
 	}
-	if err := svc2.ResolveApproval(ctx, approval.ID, domain.ApprovalAllowOnce, nil); err != nil {
+	if err := svc2.ResolveApproval(ctx, approval.ID, domain.ApprovalAllowOnce, approval.Arguments); err != nil {
 		t.Fatalf("ResolveApproval after restart: %v", err)
 	}
 	h2, err := svc2.ResumeRun(ctx, originalID)
@@ -256,7 +290,7 @@ func TestSeam1AlwaysAllowUsesProjectGrant(t *testing.T) {
 	provider := &approvalProvider{}
 	svc, store := newApprovalService(t, path, provider)
 	h1, _, approval := startUntilApproval(t, svc)
-	if err := svc.ResolveApproval(context.Background(), approval.ID, domain.ApprovalAlways, nil); err != nil {
+	if err := svc.ResolveApproval(context.Background(), approval.ID, domain.ApprovalAlways, approval.Arguments); err != nil {
 		t.Fatalf("ResolveApproval: %v", err)
 	}
 	_ = drain(t, h1)
