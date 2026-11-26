@@ -72,6 +72,16 @@ func (s *shellService) TestConnection(ctx context.Context, profileID string) (de
 	return s.bindings.TestConnection(ctx, profileID)
 }
 
+// Onboarding commands. Detection uses a short protocol-aware probe; example
+// prompts are static data from internal/onboarding.
+func (s *shellService) ListExamplePrompts(ctx context.Context) []desktop.ExamplePromptDTO {
+	return s.bindings.ListExamplePrompts(ctx)
+}
+
+func (s *shellService) DetectLocalEndpoints(ctx context.Context) ([]desktop.LocalEndpointDTO, error) {
+	return s.bindings.DetectLocalEndpoints(ctx)
+}
+
 func (s *shellService) RenameConversation(ctx context.Context, conversationID, title string) (desktop.ConversationDTO, error) {
 	return s.bindings.RenameConversation(ctx, conversationID, title)
 }
