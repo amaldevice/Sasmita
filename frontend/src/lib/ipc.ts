@@ -1,12 +1,14 @@
 import { Channel, isMyGo } from 'mygo-runtime';
 import replay from '../fixtures/run-events.json';
 import { shellService } from '../mygo';
+import { isActiveStatus, latestSeq } from './activity';
 import type {
   Conversation,
   ConversationDetail,
   Role,
   RunEvent,
   RunHandle,
+  RunRecord,
   RunSnapshot,
   StartRunRequest,
 } from './types';
@@ -21,6 +23,9 @@ export interface IPC {
   ): Promise<{ items: Conversation[]; nextCursor: string }>;
   getConversation(conversationId: string): Promise<ConversationDetail>;
   startRun(req: StartRunRequest, onEvent: (event: RunEvent) => void): Promise<RunHandle>;
+  cancelRun(runId: string): Promise<void>;
+  listRuns(conversationId: string): Promise<RunRecord[]>;
+  resumeRun(runId: string, onEvent: (event: RunEvent) => void): Promise<RunHandle>;
   getRunSnapshot(runId: string): Promise<RunSnapshot>;
 }
 
@@ -49,7 +54,21 @@ export class MyGoIPC implements IPC {
   async startRun(req: StartRunRequest, onEvent: (event: RunEvent) => void): Promise<RunHandle> {
     const events = new Channel<RunEvent>((event) => onEvent(event));
     const runId = await shellService.startRun(req, events);
-    return { runId, cancel: () => events.close() };
+    return { runId };
+  }
+
+  async cancelRun(runId: string): Promise<void> {
+    await shellService.cancelRun(runId);
+  }
+
+  async listRuns(conversationId: string): Promise<RunRecord[]> {
+    return shellService.listRuns(conversationId);
+  }
+
+  async resumeRun(runId: string, onEvent: (event: RunEvent) => void): Promise<RunHandle> {
+    const events = new Channel<RunEvent>((event) => onEvent(event));
+    const resumedId = await shellService.resumeRun(runId, events);
+    return { runId: resumedId };
   }
 
   getRunSnapshot(runId: string): Promise<RunSnapshot> {
@@ -63,6 +82,7 @@ interface StoredState {
   conversations: Conversation[];
   details: Record<string, ConversationDetail>;
   snapshots: Record<string, RunSnapshot>;
+  runs: RunRecord[];
 }
 
 function seedState(): StoredState {
@@ -79,21 +99,34 @@ function seedState(): StoredState {
     conversations: [conversation],
     details: { [conversation.id]: { conversation, messages: [] } },
     snapshots: {},
+    runs: [],
   };
 }
 
 /**
  * Fake IPC for seam 2. It replays a recorded RunEvent JSON stream verbatim and
- * persists the resulting messages in localStorage so a reload behaves like an
- * application restart.
+ * persists the resulting runs in localStorage so a reload behaves like an
+ * application restart. Active runs left behind by a reload become interrupted,
+ * mirroring the Go-side startup recovery.
  */
 export class FakeIPC implements IPC {
   private state: StoredState;
+  private controllers = new Map<string, { cancelled: boolean }>();
+  private listeners = new Map<string, (event: RunEvent) => void>();
+  private nextRun = 1;
 
   constructor() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      this.state = raw ? (JSON.parse(raw) as StoredState) : seedState();
+      const parsed = raw ? (JSON.parse(raw) as Partial<StoredState>) : null;
+      this.state = parsed
+        ? {
+            conversations: parsed.conversations ?? [],
+            details: parsed.details ?? {},
+            snapshots: parsed.snapshots ?? {},
+            runs: parsed.runs ?? [],
+          }
+        : seedState();
     } catch {
       this.state = seedState();
     }
@@ -101,6 +134,10 @@ export class FakeIPC implements IPC {
 
   private save(): void {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+  }
+
+  private newRunId(): string {
+    return `run-${Date.now()}-${this.nextRun++}`;
   }
 
   async createConversation(projectId: string, title: string, harnessId: string): Promise<Conversation> {
@@ -135,8 +172,53 @@ export class FakeIPC implements IPC {
     return structuredClone(snapshot);
   }
 
+  async listRuns(conversationId: string): Promise<RunRecord[]> {
+    let changed = false;
+    for (const run of this.state.runs) {
+      if (run.conversationId !== conversationId || !isActiveStatus(run.status)) continue;
+      run.status = 'interrupted';
+      const snapshot = this.state.snapshots[run.runId];
+      if (snapshot) {
+        snapshot.status = 'interrupted';
+        snapshot.events.push({
+          runId: run.runId,
+          seq: latestSeq(snapshot.events) + 1,
+          type: 'run.interrupted',
+          timestamp: new Date().toISOString(),
+          payload: { version: 1, status: 'interrupted' },
+        });
+      }
+      changed = true;
+    }
+    if (changed) this.save();
+    return this.state.runs
+      .filter((run) => run.conversationId === conversationId)
+      .map((run) => structuredClone(run));
+  }
+
+  async cancelRun(runId: string): Promise<void> {
+    const controller = this.controllers.get(runId);
+    if (controller) controller.cancelled = true;
+    const snapshot = this.state.snapshots[runId];
+    const record = this.state.runs.find((run) => run.runId === runId);
+    if (!snapshot || !record || snapshot.status === 'cancelled') return;
+    const event: RunEvent = {
+      runId,
+      seq: latestSeq(snapshot.events) + 1,
+      type: 'run.cancelled',
+      timestamp: new Date().toISOString(),
+      payload: { version: 1, message: 'run cancelled' },
+    };
+    snapshot.events.push(event);
+    snapshot.status = 'cancelled';
+    record.status = 'cancelled';
+    this.controllers.delete(runId);
+    this.save();
+    this.listeners.get(runId)?.(event);
+  }
+
   async startRun(req: StartRunRequest, onEvent: (event: RunEvent) => void): Promise<RunHandle> {
-    const runId = `run-${Date.now()}`;
+    const runId = this.newRunId();
     const detail = this.state.details[req.conversationId];
     if (!detail) throw new Error(`conversation ${req.conversationId} not found`);
 
@@ -150,17 +232,47 @@ export class FakeIPC implements IPC {
         createdAt: new Date().toISOString(),
       },
     ];
+    this.state.runs.push({
+      runId,
+      conversationId: req.conversationId,
+      status: 'running',
+      answer: '',
+    });
     this.save();
+    this.replay(runId, req.conversationId, onEvent);
+    return { runId };
+  }
 
-    const slow = new URLSearchParams(location.search).get('slow') === '1';
-    const stepMs = slow ? 220 : 16;
+  async resumeRun(runId: string, onEvent: (event: RunEvent) => void): Promise<RunHandle> {
+    const original = this.state.runs.find((run) => run.runId === runId);
+    if (!original || original.status !== 'interrupted') {
+      throw new Error(`run ${runId} cannot be continued`);
+    }
+    const resumedId = this.newRunId();
+    this.state.runs.push({
+      runId: resumedId,
+      conversationId: original.conversationId,
+      status: 'running',
+      answer: '',
+      originalRunId: runId,
+    });
+    this.save();
+    this.replay(resumedId, original.conversationId, onEvent);
+    return { runId: resumedId };
+  }
+
+  private replay(runId: string, conversationId: string, onEvent: (event: RunEvent) => void): void {
+    const detail = this.state.details[conversationId];
     const snapshot: RunSnapshot = { runId, status: 'running', answer: '', events: [] };
-    let cancelled = false;
+    this.state.snapshots[runId] = snapshot;
+    const controller = { cancelled: false };
+    this.controllers.set(runId, controller);
+    this.listeners.set(runId, onEvent);
     let answer = '';
 
     void (async () => {
       for (const recorded of replay as RunEvent[]) {
-        if (cancelled) break;
+        if (controller.cancelled) break;
         const event: RunEvent = {
           ...recorded,
           runId,
@@ -172,28 +284,35 @@ export class FakeIPC implements IPC {
         }
         snapshot.events.push(event);
         if (event.type === 'run.completed' || event.type === 'run.failed' || event.type === 'run.cancelled') {
-          snapshot.status = event.type === 'run.completed' ? 'completed' : 'stopped';
+          snapshot.status = event.type === 'run.completed' ? 'completed' : event.type === 'run.failed' ? 'failed' : 'cancelled';
           // Persist the assistant answer before delivering the terminal event,
           // so a refresh triggered by it sees the final message.
           detail.messages = [
             ...detail.messages,
             {
               id: `msg-assistant-${runId}`,
-              conversationId: req.conversationId,
+              conversationId,
               role: 'assistant',
               text: answer,
               createdAt: new Date().toISOString(),
             },
           ];
-          this.state.snapshots[runId] = snapshot;
+          const record = this.state.runs.find((run) => run.runId === runId);
+          if (record) {
+            record.status = snapshot.status;
+            record.answer = answer;
+          }
+          this.controllers.delete(runId);
           this.save();
         }
+        const params = new URLSearchParams(location.search);
+        const stepParam = Number(params.get('step'));
+        const stepMs = stepParam > 0 ? stepParam : params.get('slow') === '1' ? 220 : 16;
         await new Promise((resolve) => setTimeout(resolve, stepMs));
-        onEvent(event);
+        if (!controller.cancelled) onEvent(event);
       }
+      this.listeners.delete(runId);
     })();
-
-    return { runId, cancel: () => { cancelled = true; } };
   }
 }
 

@@ -50,6 +50,14 @@ export interface RunSnapshotDTO {
   events: RunEvent[];
 }
 
+export interface RunDTO {
+  runId: string;
+  conversationId: string;
+  status: string;
+  answer: string;
+  originalRunId?: string;
+}
+
 export interface StartRunRequestDTO {
   conversationId: string;
   text: string;
@@ -60,13 +68,16 @@ export interface StartRunRequestDTO {
 // ---- Services ----
 
 export const shellService = {
+  cancelRun: bind<[string], void>("shellService.CancelRun", (runID: string) => [runID]),
   createConversation: bind<[string, string, string], ConversationDTO>("shellService.CreateConversation", (projectID: string, title: string, harnessID: string) => [projectID, title, harnessID]),
   getConversation: bind<[string], ConversationDetailDTO>("shellService.GetConversation", (conversationID: string) => [conversationID]),
   getRunSnapshot: bind<[string], RunSnapshotDTO>("shellService.GetRunSnapshot", (runID: string) => [runID]),
   listConversations: bind<[string, string, number], ConversationPageDTO>("shellService.ListConversations", (projectID: string, cursor: string, limit: number) => [projectID, cursor, limit]),
+  listRuns: bind<[string], RunDTO[]>("shellService.ListRuns", (conversationID: string) => [conversationID]),
   /**
    * StartRun streams RunEvents through a typed MyGo channel. The method stays
    * pending until a terminal event, so the channel is never closed early.
    */
   startRun: bind<[StartRunRequestDTO, Channel<RunEvent>], string>("shellService.StartRun", (req: StartRunRequestDTO, events: Channel<RunEvent>) => [req, events]),
+  resumeRun: bind<[string, Channel<RunEvent>], string>("shellService.ResumeRun", (runID: string, events: Channel<RunEvent>) => [runID, events]),
 } as const;
