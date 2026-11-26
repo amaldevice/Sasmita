@@ -380,10 +380,9 @@ func (a Adapter) Stream(ctx context.Context, req model.StreamRequest, emit func(
 				blockStates[ev.Index] = &blockState{typ: ev.ContentBlock.Type}
 				if ev.ContentBlock.Type == "tool_use" {
 					state := blockStates[ev.Index]
-					state.id, state.name, state.input = ev.ContentBlock.ID, ev.ContentBlock.Name, "{}"
+					state.id, state.name, state.input = ev.ContentBlock.ID, ev.ContentBlock.Name, ""
 					pendingTools[ev.Index] = &model.ToolCall{
 						ID: ev.ContentBlock.ID, Name: ev.ContentBlock.Name,
-						Input: json.RawMessage(`{}`),
 					}
 				}
 			}
@@ -416,6 +415,9 @@ func (a Adapter) Stream(ctx context.Context, req model.StreamRequest, emit func(
 			}
 		case "content_block_stop":
 			if tc := pendingTools[ev.Index]; tc != nil {
+				if len(tc.Input) == 0 {
+					tc.Input = json.RawMessage(`{}`)
+				}
 				emit(model.StreamEvent{Kind: model.EventToolUse, ToolCall: tc})
 				delete(pendingTools, ev.Index)
 			}
