@@ -16,6 +16,7 @@ type StreamRequest struct {
 	Model          string
 	Messages       []Message
 	PromptCacheKey string
+	RunID          string
 }
 
 type StreamEventKind uint8

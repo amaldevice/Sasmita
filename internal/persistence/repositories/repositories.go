@@ -269,3 +269,88 @@ func (s *Store) AddUsage(ctx context.Context, runID string, u domain.Usage) erro
 		u.CacheReadTokens, u.CacheWriteTokens, u.UncachedTokens, estimated, u.CostEstimate)
 	return err
 }
+
+// StartRunTx persists the run record and the user message atomically, before
+// any remote request is made (TAD §20).
+func (s *Store) StartRunTx(ctx context.Context, run *domain.Run, msg *domain.Message, touchedAt time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	content, err := json.Marshal(msg.Content)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO runs(id, conversation_id, status, model_ref, harness_id, started_at, finished_at)
+		 VALUES(?,?,?,?,?,?,NULL)`,
+		run.ID, run.ConversationID, string(run.Status), run.ModelRef, run.HarnessID, stamp(run.StartedAt),
+	); err != nil {
+		tx.Rollback()
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO messages(id, conversation_id, role, content_json, created_at) VALUES(?,?,?,?,?)`,
+		msg.ID, msg.ConversationID, string(msg.Role), string(content), stamp(msg.CreatedAt),
+	); err != nil {
+		tx.Rollback()
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE conversations SET updated_at = ? WHERE id = ?`, stamp(touchedAt), run.ConversationID,
+	); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) ListRuns(ctx context.Context, conversationID string) ([]domain.Run, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, conversation_id, status, model_ref, harness_id, started_at, finished_at
+		 FROM runs WHERE conversation_id = ? ORDER BY rowid ASC`, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.Run
+	for rows.Next() {
+		var r domain.Run
+		var status, started string
+		var finished sql.NullString
+		if err := rows.Scan(&r.ID, &r.ConversationID, &status, &r.ModelRef, &r.HarnessID, &started, &finished); err != nil {
+			return nil, err
+		}
+		r.Status, r.StartedAt = domain.RunStatus(status), parseStamp(started)
+		if finished.Valid {
+			t := parseStamp(finished.String)
+			r.FinishedAt = &t
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) ListUsage(ctx context.Context, runID string) ([]domain.Usage, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT provider_id, model_id, input_tokens, output_tokens, cache_read_tokens,
+		     cache_write_tokens, uncached_tokens, estimated, cost_estimate
+		 FROM usage_records WHERE run_id = ? ORDER BY id ASC`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.Usage
+	for rows.Next() {
+		var u domain.Usage
+		var estimated int
+		if err := rows.Scan(&u.ProviderID, &u.ModelID, &u.InputTokens, &u.OutputTokens,
+			&u.CacheReadTokens, &u.CacheWriteTokens, &u.UncachedTokens, &estimated, &u.CostEstimate); err != nil {
+			return nil, err
+		}
+		u.Estimated = estimated != 0
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
