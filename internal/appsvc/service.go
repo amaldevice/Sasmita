@@ -16,6 +16,7 @@ import (
 	"github.com/amaldevice/sasmita/internal/domain"
 	"github.com/amaldevice/sasmita/internal/model"
 	"github.com/amaldevice/sasmita/internal/persistence/repositories"
+	"github.com/amaldevice/sasmita/internal/policy"
 	"github.com/amaldevice/sasmita/internal/runtime"
 	"github.com/amaldevice/sasmita/internal/tools"
 )
@@ -40,6 +41,11 @@ type Config struct {
 	AttachedFiles  []string
 	ToolOutputCap  int
 	Agent          agent.Engine
+	// Policy and Approvals wire the TAD §15.3 engine into the agent tool loop.
+	// A nil Policy gets the default matrix; nil Approvals gets a SQLite-backed
+	// coordinator sharing the store passed to New.
+	Policy    *policy.Engine
+	Approvals *runtime.ApprovalCoordinator
 	// ContextNote supplies dynamic information for the tail note on the new
 	// user turn. It must never be placed in the static system instruction.
 	ContextNote func() string
@@ -53,6 +59,7 @@ type Service struct {
 	cfg          Config
 	builder      ctxlayout.Builder
 	runtime      *runtime.Manager
+	approvals    *runtime.ApprovalCoordinator
 	providerKind domain.ProviderKind
 }
 
@@ -72,6 +79,9 @@ func New(store *repositories.Store, cfg Config) *Service {
 	if cfg.NewID == nil {
 		cfg.NewID = randomID
 	}
+	if cfg.Approvals == nil {
+		cfg.Approvals = runtime.NewApprovalCoordinator(store, cfg.Policy)
+	}
 	if cfg.Agent == nil {
 		var registry *tools.Registry
 		if cfg.EnableTools {
@@ -84,6 +94,7 @@ func New(store *repositories.Store, cfg Config) *Service {
 		}
 		cfg.Agent = agent.New(agent.Config{
 			Provider: cfg.Provider, Tools: registry, NewID: cfg.NewID,
+			States: store, Approvals: approvalGateAdapter{coordinator: cfg.Approvals},
 		})
 	}
 	// Freeze tools for the lifetime of the service (one conversation per run).
@@ -101,6 +112,7 @@ func New(store *repositories.Store, cfg Config) *Service {
 		cfg:          cfg,
 		builder:      ctxlayout.Builder{Tools: cfg.Tools},
 		runtime:      cfg.Runtime,
+		approvals:    cfg.Approvals,
 		providerKind: kind,
 	}
 }

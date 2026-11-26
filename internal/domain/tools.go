@@ -2,14 +2,14 @@ package domain
 
 import "encoding/json"
 
-// Tool events extend the versioned RunEvent stream. Approval decisions belong
-// to the later policy engine (#23); these events only describe what the agent
-// proposed and what it actually executed so that engine has something to act on.
+// Tool events extend the versioned RunEvent stream. The policy engine pauses
+// on a proposal; these events describe what was proposed, executed or denied.
 const (
 	EventToolProposed = "tool.proposed"
 	EventToolExecuted = "tool.executed"
 	EventToolArtifact = "tool.artifact"
 	EventToolFailed   = "tool.failed"
+	EventToolDenied   = "tool.denied"
 )
 
 // AgentSignalKind identifies a normalized agent-runtime signal. No provider or
@@ -17,23 +17,26 @@ const (
 type AgentSignalKind string
 
 const (
-	AgentTextDelta    AgentSignalKind = "text_delta"
-	AgentUsage        AgentSignalKind = "usage"
-	AgentToolProposed AgentSignalKind = "tool_proposed"
-	AgentToolExecuted AgentSignalKind = "tool_executed"
-	AgentToolArtifact AgentSignalKind = "tool_artifact"
-	AgentToolFailed   AgentSignalKind = "tool_failed"
-	AgentToolPair     AgentSignalKind = "tool_pair"
+	AgentTextDelta        AgentSignalKind = "text_delta"
+	AgentUsage            AgentSignalKind = "usage"
+	AgentToolProposed     AgentSignalKind = "tool_proposed"
+	AgentToolExecuted     AgentSignalKind = "tool_executed"
+	AgentToolArtifact     AgentSignalKind = "tool_artifact"
+	AgentToolFailed       AgentSignalKind = "tool_failed"
+	AgentToolDenied       AgentSignalKind = "tool_denied"
+	AgentApprovalRequired AgentSignalKind = "approval_required"
+	AgentToolPair         AgentSignalKind = "tool_pair"
 )
 
 // AgentSignal is one observable step of an agent run. Text and usage signals
 // feed the coalesced answer; tool signals carry both UI detail and the raw
 // blocks that must be appended to canonical history.
 type AgentSignal struct {
-	Kind  AgentSignalKind
-	Text  string
-	Usage *Usage
-	Tool  ToolActivity
+	Kind     AgentSignalKind
+	Text     string
+	Usage    *Usage
+	Tool     ToolActivity
+	Approval *Approval
 }
 
 // ToolActivity is the provider-neutral description of one tool step.

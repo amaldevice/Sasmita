@@ -304,6 +304,17 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 		return
 	}
 	view := harness.ActiveHistory(history, mode, s.providerKind)
+	conv, err := s.store.GetConversation(persistCtx, run.ConversationID)
+	if err != nil {
+		s.fail(ctx, persistCtx, run, stream, err)
+		return
+	}
+	roots := append([]string(nil), s.cfg.WorkspaceRoots...)
+	roots = append(roots, s.cfg.AttachedFiles...)
+	checkpointID := run.ID
+	if run.OriginalRunID != "" {
+		checkpointID = run.OriginalRunID
+	}
 
 	var full, pending strings.Builder
 	var contentBlocks []json.RawMessage
@@ -320,7 +331,9 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 	// pairs to canonical history through the signals below; the earlier prefix
 	// is never rewritten (ADR-0001).
 	result, streamErr := s.cfg.Agent.Run(ctx, agent.Request{
-		ConversationID: run.ConversationID, RunID: run.ID, ModelRef: run.ModelRef, History: view,
+		ConversationID: run.ConversationID, RunID: run.ID, CheckpointID: checkpointID,
+		Mode: run.HarnessID, ProjectID: conv.ProjectID, ScopeRoots: roots,
+		ModelRef: run.ModelRef, History: view,
 	}, func(sig domain.AgentSignal) {
 		switch sig.Kind {
 		case domain.AgentTextDelta:
@@ -329,7 +342,10 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 			if pending.Len() >= s.cfg.CoalesceSize {
 				flush()
 			}
-		case domain.AgentToolProposed, domain.AgentToolExecuted, domain.AgentToolArtifact, domain.AgentToolFailed:
+		case domain.AgentApprovalRequired:
+			s.emitApprovalRequired(persistCtx, stream, run.ID, sig.Approval)
+		case domain.AgentToolProposed, domain.AgentToolExecuted, domain.AgentToolArtifact,
+			domain.AgentToolFailed, domain.AgentToolDenied:
 			s.emitToolSignal(persistCtx, stream, run.ID, sig)
 		case domain.AgentToolPair:
 			s.appendToolPair(persistCtx, run, sig.Tool)
@@ -435,9 +451,27 @@ func (s *Service) persistUsage(ctx context.Context, run *domain.Run, u *model.Us
 	_ = s.store.AddUsage(ctx, run.ID, toDomainUsage(*u))
 }
 
+// emitApprovalRequired persists the waiting state and streams the inline card.
+// Arguments stay out of IPC; the stored approval keeps them for revalidation.
+func (s *Service) emitApprovalRequired(ctx context.Context, stream *eventStream, runID string, a *domain.Approval) {
+	if a == nil {
+		return
+	}
+	if err := s.store.UpdateRunStatus(ctx, runID, domain.RunAwaitingApproval, nil); err != nil {
+		return
+	}
+	raw, err := json.Marshal(domain.ApprovalPayload{
+		Envelope: envelope(), ApprovalID: a.ID, CallID: a.CallID, ToolID: a.ToolID,
+		Status: string(domain.RunAwaitingApproval), Action: a.Action, Resource: a.Resource,
+		Impact: a.Impact, Message: a.Message, ArgsHash: a.ArgsHash, PolicyHash: a.PolicyHash,
+	})
+	if err != nil {
+		return
+	}
+	_ = s.emitRaw(ctx, stream, runID, domain.EventApprovalRequired, raw, true)
+}
+
 // emitToolSignal turns a domain-level tool step into a versioned RunEvent.
-// The policy engine (#23) consumes proposed vs executed state here; this
-// ticket only reports it.
 func (s *Service) emitToolSignal(ctx context.Context, stream *eventStream, runID string, sig domain.AgentSignal) {
 	eventType := domain.EventToolExecuted
 	status := "executed"
@@ -448,6 +482,8 @@ func (s *Service) emitToolSignal(ctx context.Context, stream *eventStream, runID
 		eventType, status = domain.EventToolArtifact, "artifact"
 	case domain.AgentToolFailed:
 		eventType, status = domain.EventToolFailed, "failed"
+	case domain.AgentToolDenied:
+		eventType, status = domain.EventToolDenied, "denied"
 	}
 	payload := domain.ToolPayload{
 		Envelope: envelope(), CallID: sig.Tool.CallID, Name: sig.Tool.Name,

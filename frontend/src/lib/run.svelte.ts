@@ -1,5 +1,5 @@
 import { answerFromSnapshot } from './activity';
-import type { RunEvent, RunSnapshot, ToolStep } from './types';
+import type { Approval, RunEvent, RunSnapshot, ToolStep } from './types';
 
 /**
  * Reduces the versioned RunEvent stream into the answer shown in the chat.
@@ -16,6 +16,7 @@ export class ChatRun {
   deltaCount = $state(0);
   usage = $state<{ inputTokens: number; outputTokens: number; cacheReadTokens: number } | null>(null);
   steps = $state<ToolStep[]>([]);
+  approval = $state<Approval | null>(null);
   startedAt = $state('');
   lastEventAt = $state('');
 
@@ -30,6 +31,11 @@ export class ChatRun {
     this.runId = id;
   }
 
+  /** Stops the pulse as soon as the user answers, before the next event. */
+  clearApproval(): void {
+    this.approval = null;
+  }
+
   begin(): void {
     this.streaming = true;
     this.status = 'queued';
@@ -40,6 +46,7 @@ export class ChatRun {
     this.deltaCount = 0;
     this.usage = null;
     this.steps = [];
+    this.approval = null;
     this.startedAt = '';
     this.lastEventAt = '';
   }
@@ -89,13 +96,15 @@ export class ChatRun {
         this.cancelling = true;
         break;
       case 'tool.approval_required':
-        // Approval policy is a later ticket; the run state can represent the wait.
         this.status = 'awaiting_approval';
+        this.approval = payload as unknown as Approval;
         break;
       case 'tool.proposed':
       case 'tool.executed':
       case 'tool.artifact':
-      case 'tool.failed': {
+      case 'tool.failed':
+      case 'tool.denied': {
+        if (event.type === 'tool.executed' || event.type === 'tool.denied') this.approval = null;
         const phase = event.type.slice('tool.'.length) as ToolStep['phase'];
         this.steps = [
           ...this.steps,
@@ -126,15 +135,18 @@ export class ChatRun {
       case 'run.completed':
         this.status = 'completed';
         this.streaming = false;
+        this.approval = null;
         break;
       case 'run.failed':
         this.status = 'failed';
         this.streaming = false;
+        this.approval = null;
         this.error = payload.message ?? 'Run stopped';
         break;
       case 'run.cancelled':
         this.status = 'cancelled';
         this.streaming = false;
+        this.approval = null;
         this.cancelling = false;
         this.error = payload.message ?? 'Run dibatalkan';
         break;

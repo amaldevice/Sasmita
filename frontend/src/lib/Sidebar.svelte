@@ -1,13 +1,14 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import { i18n, type StringKey } from './i18n.svelte';
-  import type { Conversation, ShellView } from './types';
+  import type { Conversation, ShellView, SidebarBadge } from './types';
 
   let {
     collapsed = $bindable(false),
     view = $bindable<ShellView>('chat'),
     conversations = [],
     selectedId = '',
+    badges = {},
     onnewchat,
     onselect,
   }: {
@@ -15,6 +16,7 @@
     view?: ShellView;
     conversations: Conversation[];
     selectedId: string;
+    badges?: Record<string, SidebarBadge>;
     onnewchat: () => void;
     onselect: (id: string) => void;
   } = $props();
@@ -81,6 +83,15 @@
       >
         <span class="dot"></span>
         <span class="label-text">{conversation.title}</span>
+        {#if badges[conversation.id]}
+          <span
+            class="badge"
+            class:finished={badges[conversation.id] === 'finished'}
+            data-testid="sidebar-badge"
+            data-kind={badges[conversation.id]}
+            title={badges[conversation.id] === 'waiting' ? i18n.t('waitingElsewhere') : i18n.t('finishedElsewhere')}
+          ></span>
+        {/if}
       </button>
     {/each}
   </div>
@@ -146,4 +157,6 @@
     letter-spacing: 0.08em;
   }
   .dot { width: 4px; height: 4px; flex: none; border-radius: 50%; background: currentColor; }
+  .badge { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--attn); }
+  .badge.finished { background: var(--ok); }
 </style>

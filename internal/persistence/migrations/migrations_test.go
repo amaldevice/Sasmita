@@ -110,16 +110,16 @@ func TestMigrateAppliesAllFourFilesExactlyOnce(t *testing.T) {
 		}
 		applied = append(applied, name)
 	}
-	want := []string{"001_init.sql", "002_init.sql", "003_init.sql", "004_init.sql"}
+	want := []string{"001_init.sql", "002_init.sql", "003_init.sql", "004_init.sql", "010_init.sql"}
 	if fmt.Sprint(applied) != fmt.Sprint(want) {
 		t.Fatalf("applied migrations = %v, want %v", applied, want)
 	}
-	if migrations.Latest != 4 {
-		t.Fatalf("migrations.Latest = %d, want 4", migrations.Latest)
+	if migrations.Latest != 10 {
+		t.Fatalf("migrations.Latest = %d, want 10", migrations.Latest)
 	}
 	v, err := migrations.Version(db)
-	if err != nil || v != 4 {
-		t.Fatalf("schema version = %d (err %v), want 4", v, err)
+	if err != nil || v != 10 {
+		t.Fatalf("schema version = %d (err %v), want 10", v, err)
 	}
 	for _, table := range []string{"provider_profiles", "conversation_fts"} {
 		var name string

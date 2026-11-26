@@ -29,6 +29,10 @@ type Engine interface {
 type Request struct {
 	ConversationID string
 	RunID          string
+	CheckpointID   string // stable across a retry, so an approval survives restart
+	Mode           string
+	ProjectID      string
+	ScopeRoots     []string
 	ModelRef       string
 	History        []domain.Message
 }
@@ -50,7 +54,9 @@ type Config struct {
 	Provider    model.ModelProvider
 	Tools       *tools.Registry
 	MaxTurns    int
-	Checkpoints CheckpointStore
+	Checkpoints CheckpointStore // Eino ADK checkpoint bytes
+	States      CheckpointStore // app-owned pause state, under its own key prefix
+	Approvals   ApprovalGate
 	NewID       func() string
 }
 

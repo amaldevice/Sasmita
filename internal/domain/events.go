@@ -72,12 +72,22 @@ type ErrorPayload struct {
 	Message string `json:"message"`
 }
 
-// ApprovalPayload represents an approval wait in the run stream. The policy
-// engine that decides approvals is a later ticket (#23).
+// ApprovalPayload is the inline approval card in the run stream. It carries
+// plain-language detail straight from the policy decision; the frontend never
+// derives authorization from it.
 type ApprovalPayload struct {
 	Envelope
-	Status  string `json:"status,omitempty"`
-	Message string `json:"message"`
+	ApprovalID string          `json:"approvalId"`
+	CallID     string          `json:"callId,omitempty"`
+	ToolID     string          `json:"toolId,omitempty"`
+	Status     string          `json:"status,omitempty"`
+	Action     string          `json:"action"`
+	Resource   string          `json:"resource"`
+	Impact     string          `json:"impact"`
+	Message    string          `json:"message"`
+	Arguments  json.RawMessage `json:"arguments,omitempty"`
+	ArgsHash   string          `json:"argsHash,omitempty"`
+	PolicyHash string          `json:"policyHash,omitempty"`
 }
 
 // RunSnapshot is the reconnect recovery payload (TAD §14.3).

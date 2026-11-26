@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Activity from './lib/Activity.svelte';
+  import ApprovalCard from './lib/ApprovalCard.svelte';
   import Composer from './lib/Composer.svelte';
   import Connections from './lib/Connections.svelte';
   import { createConnectionIPC, type ModelInfo } from './lib/connections';
@@ -18,9 +19,20 @@
     type ExamplePrompt,
   } from './lib/onboarding';
   import { createModeIPC, modeLabel, type Mode, type ModeIPC } from './lib/modes';
+  import { notifyOnApproval } from './lib/notifications.svelte';
   import { ChatRun } from './lib/run.svelte';
   import { theme } from './lib/theme.svelte';
-  import type { Conversation, ConversationDetail, Project, RunRecord, SearchResult, ShellView } from './lib/types';
+  import type {
+    ApprovalDecision,
+    Conversation,
+    ConversationDetail,
+    Project,
+    RunEvent,
+    RunRecord,
+    SearchResult,
+    ShellView,
+    SidebarBadge,
+  } from './lib/types';
 
   let ipc = $state<IPC | null>(null);
   let conversations = $state<Conversation[]>([]);
@@ -30,6 +42,9 @@
   let draft = $state('');
   let run = $state(new ChatRun());
   let runs = $state<RunRecord[]>([]);
+  let badges = $state<Record<string, SidebarBadge>>({});
+  const seenRuns = new Set<string>();
+  let badgesSeeded = false;
   let interrupted = $derived.by(() => {
     const stale = runs.find(
       (record) => record.conversationId === selectedId && record.status === 'interrupted',
@@ -96,11 +111,62 @@
     detail = await ipc.getConversation(first.id);
     moveProject = detail.conversation.projectId;
     await refreshRuns();
+    // A run that was waiting when the app closed still needs its card.
+    const pending = await ipc.listPendingApprovals(selectedId);
+    if (pending.length > 0) {
+      run.setRunId(pending[0].runId);
+      run.approval = pending[0];
+    }
+    await refreshBadges();
   });
 
   async function refreshRuns() {
     if (!ipc || !selectedId) return;
     runs = await ipc.listRuns(selectedId);
+  }
+
+  // Sidebar badges reflect work that happened in another conversation. The
+  // first pass only records known run IDs; later passes show newly finished work.
+  async function refreshBadges() {
+    if (!ipc) return;
+    const next: Record<string, SidebarBadge> = {};
+    const known: string[] = [];
+    for (const conversation of conversations) {
+      const records = await ipc.listRuns(conversation.id);
+      known.push(...records.map((record) => record.runId));
+      const waiting = records.some(
+        (record) => record.status === 'awaiting_approval' || record.status === 'awaiting_user',
+      );
+      const fresh = records.some(
+        (record) =>
+          badgesSeeded &&
+          conversation.id !== selectedId &&
+          ['completed', 'failed', 'cancelled'].includes(record.status) &&
+          !seenRuns.has(record.runId),
+      );
+      if (waiting) next[conversation.id] = 'waiting';
+      else if (fresh) next[conversation.id] = 'finished';
+    }
+    for (const id of known) seenRuns.add(id);
+    badgesSeeded = true;
+    badges = next;
+  }
+
+  function handleEvent(event: RunEvent) {
+    run.apply(event);
+    if (event.type === 'tool.approval_required' && run.approval) {
+      notifyOnApproval(run.approval);
+      void refreshBadges();
+    }
+    if (event.type === 'run.completed' || event.type === 'run.failed' || event.type === 'run.cancelled') {
+      void refreshBadges();
+    }
+  }
+
+  async function resolveApproval(approvalId: string, decision: ApprovalDecision) {
+    if (!ipc) return;
+    run.clearApproval();
+    await ipc.resolveApproval(approvalId, decision);
   }
 
   // On terminal, reload canonical history from the typed binding so the
@@ -111,6 +177,7 @@
       const id = selectedId;
       void ipc.getConversation(id).then((loaded) => { detail = loaded; });
       void refreshRuns();
+      void refreshBadges();
     }
   });
 
@@ -140,7 +207,7 @@
     if (!ipc || !interrupted) return;
     const original = interrupted;
     run.begin();
-    const handle = await ipc.resumeRun(original.runId, (event) => run.apply(event));
+    const handle = await ipc.resumeRun(original.runId, handleEvent);
     run.setRunId(handle.runId);
     await refreshRuns();
   }
@@ -184,7 +251,7 @@
     run.begin();
     const handle = await ipc.startRun(
       { conversationId: selectedId, text, modelRef: modelId || 'gpt-test', harnessId: modeId },
-      (event) => run.apply(event),
+      handleEvent,
     );
     run.setRunId(handle.runId);
   }
@@ -236,6 +303,7 @@
     bind:view
     {conversations}
     {selectedId}
+    {badges}
     onnewchat={() => void newChat()}
     onselect={(id) => void select(id)}
   />
@@ -296,6 +364,11 @@
       <div class="thread" data-testid="thread">
         {#if interrupted}
           <InterruptedRun run={interrupted} onContinue={() => void continueRun()} />
+        {/if}
+
+        {#if run.approval}
+          {@const approval = run.approval}
+          <ApprovalCard {approval} onresolve={(decision) => void resolveApproval(approval.approvalId, decision)} />
         {/if}
 
         {#if detail?.messages.length === 0 && !run.answer}
