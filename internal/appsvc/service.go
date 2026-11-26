@@ -65,9 +65,8 @@ func randomID() string {
 }
 
 func (s *Service) CreateConversation(ctx context.Context, projectID, title, harnessID string) (*domain.Conversation, error) {
-	if strings.TrimSpace(projectID) == "" {
-		return nil, domain.ErrInvalidArgument
-	}
+	// An empty project id is valid: the conversation is not in a project and
+	// therefore has no folder to open (migrations/003_init.sql).
 	if harnessID == "" {
 		harnessID = defaultHarness
 	}
@@ -90,6 +89,10 @@ func (s *Service) ListConversations(ctx context.Context, projectID, cursor strin
 	return s.store.ListConversations(ctx, projectID, cursor, limit)
 }
 
+func (s *Service) ListRecentConversations(ctx context.Context, cursor string, limit int) ([]domain.Conversation, string, error) {
+	return s.store.ListRecentConversations(ctx, cursor, limit)
+}
+
 // GetConversation returns the conversation together with its canonical history
 // so the UI can rebuild state after a restart.
 func (s *Service) GetConversation(ctx context.Context, id string) (*domain.ConversationDetail, error) {
@@ -102,6 +105,35 @@ func (s *Service) GetConversation(ctx context.Context, id string) (*domain.Conve
 		return nil, err
 	}
 	return &domain.ConversationDetail{Conversation: *conv, Messages: messages}, nil
+}
+
+// RenameConversation changes only the title; canonical history is untouched.
+func (s *Service) RenameConversation(ctx context.Context, id, title string) (*domain.Conversation, error) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return nil, domain.ErrInvalidArgument
+	}
+	if err := s.store.RenameConversation(ctx, id, title, s.cfg.Now()); err != nil {
+		return nil, err
+	}
+	return s.store.GetConversation(ctx, id)
+}
+
+// MoveConversation associates a conversation with a project. domain.NoProjectID
+// removes the association; such conversations have no folder access.
+func (s *Service) MoveConversation(ctx context.Context, id, projectID string) (*domain.Conversation, error) {
+	if err := s.store.MoveConversation(ctx, id, projectID, s.cfg.Now()); err != nil {
+		return nil, err
+	}
+	return s.store.GetConversation(ctx, id)
+}
+
+func (s *Service) SearchConversations(ctx context.Context, query string, limit int) ([]domain.SearchResult, error) {
+	return s.store.SearchConversations(ctx, query, limit)
+}
+
+func (s *Service) ListProjects(ctx context.Context) ([]domain.Project, error) {
+	return s.store.ListProjects(ctx)
 }
 
 // GetRunSnapshot supports reconnect recovery (TAD §14.3).
