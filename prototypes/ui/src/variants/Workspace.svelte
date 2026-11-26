@@ -13,6 +13,8 @@
   type Fmt = 'stack' | 'stack2' | 'side';
   let { s, run, tokens, replay }: { s: Strings; run: AnswerRun; tokens: Token[]; replay: () => void } = $props();
   let empty = $state(false);
+  let collapsed = $state(false);
+  let narrow = $derived(collapsed || view === 'read');
   function ask() { empty = false; replay(); }
 
   const q = new URLSearchParams(location.search);
@@ -48,11 +50,14 @@
   </div>
 {/snippet}
 
-<div class={['app', view, panel !== 'off' && 'withPanel', panel === 'full' && 'full']}>
-  {#if view === 'read'}<Chrome part="rail" {s} />{:else}<Chrome part="sidebar" {s} onnew={() => { empty = true; run.destroy(); }} />{/if}
+<div class={['app', view, narrow && 'narrow', panel !== 'off' && 'withPanel', panel === 'full' && 'full']}>
+  {#if narrow}<Chrome part="rail" {s} />{:else}<Chrome part="sidebar" {s} onnew={() => { empty = true; run.destroy(); }} />{/if}
 
   <main>
     <header>
+      <button class="tog" onclick={() => (collapsed = !collapsed)} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-pressed={collapsed} title="⌘\">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5" /><path d="M9 4.5v15" /></svg>
+      </button>
       <b>{s.title}</b>
       <span class="sub">{s.mode}</span>
       <div class="views" role="tablist">
@@ -120,15 +125,15 @@
   {/if}
 </div>
 
-<svelte:window onkeydown={(e) => { if (e.key === 'Escape') { if (panel === 'full') panel = 'side'; else fmtOpen = false; } }} />
+<svelte:window onkeydown={(e) => { if (e.metaKey && e.key === '\\') { e.preventDefault(); collapsed = !collapsed; return; } if (e.key === 'Escape') { if (panel === 'full') panel = 'side'; else fmtOpen = false; } }} />
 
 <style>
   .ic { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; }
   .app { display: grid; grid-template-columns: 272px 1fr; gap: 8px; padding: 8px; height: 100vh; transition: grid-template-columns 320ms var(--ease-out); }
   .app > :global(*) { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--bg); }
-  .app.read { grid-template-columns: 64px 1fr; }
+  .app.narrow { grid-template-columns: 64px 1fr; }
   .app.withPanel { grid-template-columns: 272px minmax(380px, 1fr) 1.25fr; }
-  .app.read.withPanel { grid-template-columns: 64px minmax(380px, 1fr) 1.25fr; }
+  .app.narrow.withPanel { grid-template-columns: 64px minmax(380px, 1fr) 1.25fr; }
   .app.full { grid-template-columns: 0 0 1fr; gap: 0; }
   .app.full > :global(:not(.panel)) { border: 0; }
   .app.full > :global(:not(.panel)) { visibility: hidden; }
@@ -137,6 +142,9 @@
   header { height: 56px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 24px; border-bottom: 1px solid var(--line); }
   header b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sub { color: var(--mute); font-size: 14px; }
+  .tog { display: grid; place-items: center; width: 30px; height: 30px; margin-left: -8px; border-radius: 6px; color: var(--mute); }
+  .tog:hover { background: var(--raise); color: var(--text); }
+  .tog svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.7; }
   .views { margin-left: auto; display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--raise); }
   .views button { padding: 3px 12px; border-radius: 6px; font-size: 14px; color: var(--mute); transition: background 200ms var(--ease-out), color 200ms var(--ease-out); }
   .views button.on { background: var(--bg); color: var(--text); }

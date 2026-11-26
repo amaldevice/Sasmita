@@ -10,7 +10,7 @@
   const q = new URLSearchParams(location.search);
   let variant = $state(q.get('variant') ?? 'A');
   let world = $state(q.get('world') ?? 'canon');
-  let theme = $state(q.get('theme') ?? 'light');
+  let theme = $state(q.get('theme') ?? 'dark');
   let lang = $state<Lang>((q.get('lang') as Lang) ?? 'id');
 
   let s = $derived(t(lang));
