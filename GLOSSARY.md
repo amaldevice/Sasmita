@@ -9,8 +9,8 @@ _Avoid_: history, prompt
 **Context note**: Informasi dinamis (pergantian tanggal, perubahan workspace, lampiran, memory hasil retrieval) yang ditempel ke user turn, berisi hanya apa yang berubah sejak note sebelumnya. Setelah terkirim menjadi bagian canonical history dan tidak diubah.
 _Avoid_: system reminder, injected context
 
-**Harness profile**: Lingkungan kerja sebuah run: instruksi, tools, skills, workspace, izin, dan kebijakan context. Model hanya salah satu field-nya.
-_Avoid_: agent, mode
+**Mode**: Lingkungan kerja sebuah run: instruksi, tools, skills, workspace, izin, dan kebijakan context, misalnya Mode Chat, Riset, Analis Data, Penulisan, Coding. Model hanya salah satu field-nya.
+_Avoid_: harness, harness profile, agent, asisten
 
 **UI block** (Tier 1): Visual inline yang dideskripsikan sebagai data deklaratif dan dirender oleh komponen milik Sasmita.
 _Avoid_: widget, GenUI component
