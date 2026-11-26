@@ -48,6 +48,11 @@ func (l *loopAgent) Run(ctx context.Context, _ *adk.AgentInput, _ ...adk.AgentRu
 
 func (l *loopAgent) execute(ctx context.Context, emit func(domain.AgentSignal)) (Result, error) {
 	var result Result
+	if l.req.CheckpointID != "" {
+		// A resumed attempt continues from the state saved at the approval
+		// wait, not from a fresh active context.
+		l.restoreCheckpoint(ctx)
+	}
 	var allText strings.Builder
 	for turn := 0; turn < l.engine.cfg.MaxTurns; turn++ {
 		if err := ctx.Err(); err != nil {
@@ -127,6 +132,38 @@ func (l *loopAgent) dispatchCalls(ctx context.Context, calls []model.ToolCall, b
 			},
 		})
 		assistantBlocks = append(assistantBlocks, toolUseBlock(call, rawByID[call.ID]))
+
+		if gate := l.engine.cfg.Approvals; gate != nil {
+			// Persist the pause state before blocking: the process may die
+			// while the approval card is still on screen (TAD §14.3).
+			l.saveCheckpoint(ctx)
+			verdict, err := gate.Authorize(ctx, ApprovalRequest{
+				RunID: l.req.RunID, CheckpointID: l.checkpointID(),
+				ConversationID: l.req.ConversationID, CallID: call.ID, ToolID: call.Name,
+				Mode: l.req.Mode, ProjectID: l.req.ProjectID,
+				Arguments: call.Input, ScopeRoots: l.req.ScopeRoots,
+				OnPending: func(a *domain.Approval) error {
+					emit(domain.AgentSignal{Kind: domain.AgentApprovalRequired, Approval: a})
+					return nil
+				},
+			})
+			if err != nil {
+				return err
+			}
+			if verdict.Denied {
+				reason := verdict.Reason
+				if reason == "" {
+					reason = "tool was not approved"
+				}
+				activity := domain.ToolActivity{
+					CallID: call.ID, Name: call.Name, Risk: risk, Input: call.Input,
+					Executed: false, Error: reason,
+				}
+				emit(domain.AgentSignal{Kind: domain.AgentToolDenied, Tool: activity})
+				resultBlocks = append(resultBlocks, toolResultBlock(call.ID, "denied: "+reason))
+				continue
+			}
+		}
 
 		started := time.Now()
 		out, err := l.engine.cfg.Tools.Execute(ctx, call)

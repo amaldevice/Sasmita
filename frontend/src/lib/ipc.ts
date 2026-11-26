@@ -1,4 +1,5 @@
-import { Channel, isMyGo } from 'mygo-runtime';
+import { bind, Channel, isMyGo } from 'mygo-runtime';
+import approvalReplay from '../fixtures/approval-events.json';
 import replay from '../fixtures/run-events.json';
 import toolReplay from '../fixtures/tool-events.json';
 import uiDataFixture from '../fixtures/ui-data.json';
@@ -9,6 +10,8 @@ import { isActiveStatus, latestSeq } from './activity';
 import { usageFromEvents } from './usage';
 import { parseUIBlock } from './uiblocks';
 import type {
+  Approval,
+  ApprovalDecision,
   Conversation,
   ConversationDetail,
   Project,
@@ -42,11 +45,22 @@ export interface IPC {
   listRuns(conversationId: string): Promise<RunRecord[]>;
   resumeRun(runId: string, onEvent: (event: RunEvent) => void): Promise<RunHandle>;
   getRunSnapshot(runId: string): Promise<RunSnapshot>;
+  listPendingApprovals(conversationId: string): Promise<Approval[]>;
+  resolveApproval(approvalId: string, decision: ApprovalDecision, args?: string): Promise<void>;
   /** Bounded, read-only fetch of a large dataset referenced by a UI block. */
   getUIData(ref: string, limit: number): Promise<UIData>;
   /** Persist a committed, debounced view-local state patch as an append-only event. */
   saveUIState(runId: string, blockId: string, patch: Record<string, unknown>): Promise<void>;
 }
+
+// The generated client is refreshed by `mygo generate`; these two bindings use
+// the same typed bridge for commands added in ticket #23.
+const listPendingApprovalsBinding = bind<[string], Approval[]>(
+  'shellService.ListPendingApprovals', (conversationID: string) => [conversationID],
+);
+const resolveApprovalBinding = bind<[string, string, string], void>(
+  'shellService.ResolveApproval', (approvalID: string, decision: string, args: string) => [approvalID, decision, args],
+);
 
 /** Uses the TypeScript client generated from the Go bindings by `mygo generate`. */
 export class MyGoIPC implements IPC {
@@ -118,6 +132,14 @@ export class MyGoIPC implements IPC {
     return shellService.getRunSnapshot(runId);
   }
 
+  listPendingApprovals(conversationId: string): Promise<Approval[]> {
+    return listPendingApprovalsBinding(conversationId);
+  }
+
+  async resolveApproval(approvalId: string, decision: ApprovalDecision, args = ''): Promise<void> {
+    await resolveApprovalBinding(approvalId, decision, args);
+  }
+
   async getUIData(ref: string, limit: number): Promise<UIData> {
     const data = await shellService.getUIData(ref, limit);
     return { ref: data.ref, rows: (data.rows ?? []) as UIData['rows'], truncated: !!data.truncated };
@@ -130,12 +152,20 @@ export class MyGoIPC implements IPC {
 
 const STORAGE_KEY = 'sasmita.fake.v1';
 
+interface StoredApproval {
+  runId: string;
+  conversationId: string;
+  decision: ApprovalDecision | null;
+  card: Approval;
+}
+
 interface StoredState {
   conversations: Conversation[];
   details: Record<string, ConversationDetail>;
   snapshots: Record<string, RunSnapshot>;
   runs: RunRecord[];
   projects: Project[];
+  approvals: Record<string, StoredApproval>;
 }
 
 function seedState(): StoredState {
@@ -157,6 +187,7 @@ function seedState(): StoredState {
       { id: 'p1', name: 'Work', rootUri: 'file:///work', createdAt: now, updatedAt: now },
       { id: 'p2', name: 'Personal', rootUri: '', createdAt: now, updatedAt: now },
     ],
+    approvals: {},
   };
 }
 
@@ -170,6 +201,7 @@ export class FakeIPC implements IPC {
   private state: StoredState;
   private controllers = new Map<string, { cancelled: boolean }>();
   private listeners = new Map<string, (event: RunEvent) => void>();
+  private decisions = new Map<string, (decision: ApprovalDecision) => void>();
   private nextRun = 1;
 
   constructor() {
@@ -183,6 +215,7 @@ export class FakeIPC implements IPC {
             snapshots: parsed.snapshots ?? {},
             runs: parsed.runs ?? [],
             projects: parsed.projects ?? seedState().projects,
+            approvals: parsed.approvals ?? {},
           }
         : seedState();
     } catch {
@@ -275,6 +308,26 @@ export class FakeIPC implements IPC {
     return structuredClone(snapshot);
   }
 
+  async listPendingApprovals(conversationId: string): Promise<Approval[]> {
+    return Object.values(this.state.approvals)
+      .filter((stored) => stored.decision === null && stored.conversationId === conversationId)
+      .map((stored) => structuredClone(stored.card));
+  }
+
+  async resolveApproval(approvalId: string, decision: ApprovalDecision, args = ''): Promise<void> {
+    const stored = this.state.approvals[approvalId];
+    if (!stored) throw new Error(`approval ${approvalId} not found`);
+    if (stored.decision !== null) return;
+    void args; // the backend revalidates the bound argument hash; the replay only records the choice
+    stored.decision = decision;
+    this.save();
+    const wake = this.decisions.get(stored.runId);
+    if (wake) {
+      this.decisions.delete(stored.runId);
+      wake(decision);
+    }
+  }
+
   async getUIData(ref: string, limit: number): Promise<UIData> {
     if (!ref.startsWith('artifact://')) throw new Error('data reference is not an opaque artifact');
     const cap = limit > 0 && limit < 2000 ? limit : 2000;
@@ -299,7 +352,9 @@ export class FakeIPC implements IPC {
   async listRuns(conversationId: string): Promise<RunRecord[]> {
     let changed = false;
     for (const run of this.state.runs) {
-      if (run.conversationId !== conversationId || !isActiveStatus(run.status)) continue;
+      // A run waiting on an approval is paused, not stale; a reload must keep
+      // its badge instead of turning it into an interrupted run.
+      if (run.conversationId !== conversationId || !isActiveStatus(run.status) || run.status === 'awaiting_approval') continue;
       run.status = 'interrupted';
       const snapshot = this.state.snapshots[run.runId];
       if (snapshot) {
@@ -396,21 +451,52 @@ export class FakeIPC implements IPC {
     const blocks: UIBlock[] = [];
 
     const params = new URLSearchParams(location.search);
-    const stream = (params.get('tools') === '1'
-      ? toolReplay
-      : params.get('ui') === 'fallback'
-        ? uiFallbackReplay
-        : params.get('ui') === '1'
-          ? uiReplay
-          : replay) as RunEvent[];
+    const stream = (params.get('approval') === '1'
+      ? approvalReplay
+      : params.get('tools') === '1'
+        ? toolReplay
+        : params.get('ui') === 'fallback'
+          ? uiFallbackReplay
+          : params.get('ui') === '1'
+            ? uiReplay
+            : replay) as RunEvent[];
     void (async () => {
       for (const recorded of stream) {
         if (controller.cancelled) break;
-        const event: RunEvent = {
+        let event: RunEvent = {
           ...recorded,
           runId,
           payload: structuredClone(recorded.payload),
         };
+        let waitForDecision = false;
+        if (event.type === 'tool.approval_required') {
+          const approvalId = (event.payload as { approvalId: string }).approvalId;
+          const alreadyDecided = Object.values(this.state.approvals).some(
+            (stored) => stored.runId === runId && stored.decision !== null,
+          );
+          if (!alreadyDecided) {
+            this.state.approvals[approvalId] = {
+              runId, conversationId, decision: null, card: event.payload as Approval,
+            };
+            const record = this.state.runs.find((run) => run.runId === runId);
+            if (record) record.status = 'awaiting_approval';
+            snapshot.status = 'awaiting_approval';
+            this.save();
+            waitForDecision = true;
+          }
+        }
+        if (event.type === 'tool.executed' && this.state.approvals) {
+          const denied = Object.values(this.state.approvals).some(
+            (stored) => stored.runId === runId && stored.decision === 'deny',
+          );
+          if (denied) {
+            event = {
+              ...event,
+              type: 'tool.denied',
+              payload: { ...(event.payload as object), executed: false, status: 'denied', error: 'not approved' },
+            };
+          }
+        }
         if (event.type === 'model.text_delta') {
           answer += (event.payload as { text: string }).text;
           snapshot.answer = answer;
@@ -450,6 +536,9 @@ export class FakeIPC implements IPC {
         const stepMs = stepParam > 0 ? stepParam : params.get('slow') === '1' ? 220 : 16;
         await new Promise((resolve) => setTimeout(resolve, stepMs));
         if (!controller.cancelled) onEvent(event);
+        if (waitForDecision && !controller.cancelled) {
+          await new Promise<ApprovalDecision>((resolve) => this.decisions.set(runId, resolve));
+        }
       }
       this.listeners.delete(runId);
     })();

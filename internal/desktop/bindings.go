@@ -150,6 +150,23 @@ type RunDTO struct {
 	OriginalRunID  string `json:"originalRunId,omitempty"`
 }
 
+// ApprovalDTO is the inline card's data. Raw arguments stay in SQLite; only
+// plain-language detail crosses IPC.
+type ApprovalDTO struct {
+	ApprovalID string `json:"approvalId"`
+	RunID      string `json:"runId"`
+	CallID     string `json:"callId"`
+	ToolID     string `json:"toolId"`
+	Status     string `json:"status"`
+	Action     string `json:"action"`
+	Resource   string `json:"resource"`
+	Impact     string `json:"impact"`
+	Message    string `json:"message"`
+	ArgsHash   string `json:"argsHash"`
+	PolicyHash string `json:"policyHash"`
+	CreatedAt  string `json:"createdAt"`
+}
+
 // Bindings is the typed IPC surface exposed to the frontend.
 type Bindings interface {
 	CreateConversation(ctx context.Context, projectID, title, harnessID string) (ConversationDTO, error)
@@ -165,6 +182,8 @@ type Bindings interface {
 	ResumeRun(ctx context.Context, runID string) (RunHandleDTO, error)
 	ListRuns(ctx context.Context, conversationID string) ([]RunDTO, error)
 	GetRunSnapshot(ctx context.Context, runID string) (RunSnapshotDTO, error)
+	ListPendingApprovals(ctx context.Context, conversationID string) ([]ApprovalDTO, error)
+	ResolveApproval(ctx context.Context, approvalID, decision, arguments string) error
 	GetUIData(ctx context.Context, ref string, limit int) (UIDataDTO, error)
 	SaveUIState(ctx context.Context, runID, blockID string, patch json.RawMessage) error
 	AddProviderProfile(ctx context.Context, req AddProviderProfileRequestDTO) (ProviderProfileDTO, error)
@@ -368,6 +387,18 @@ func (s *Service) GetRunSnapshot(ctx context.Context, runID string) (RunSnapshot
 	}, nil
 }
 
+func (s *Service) ListPendingApprovals(ctx context.Context, conversationID string) ([]ApprovalDTO, error) {
+	approvals, err := s.svc.PendingApprovals(ctx, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ApprovalDTO, 0, len(approvals))
+	for _, a := range approvals {
+		out = append(out, approvalDTO(a))
+	}
+	return out, nil
+}
+
 const (
 	maxUIDataRows  = 2000
 	maxUIDataBytes = 5 << 20
@@ -436,6 +467,23 @@ func (s *Service) GetUsageReport(ctx context.Context) (UsageReportDTO, error) {
 		out.Drop = &UsageDropDTO{Day: report.Drop.Day, From: report.Drop.From, To: report.Drop.To}
 	}
 	return out, nil
+}
+
+func (s *Service) ResolveApproval(ctx context.Context, approvalID, decision, arguments string) error {
+	var raw json.RawMessage
+	if arguments != "" {
+		raw = json.RawMessage(arguments)
+	}
+	return s.svc.ResolveApproval(ctx, approvalID, decision, raw)
+}
+
+func approvalDTO(a domain.Approval) ApprovalDTO {
+	return ApprovalDTO{
+		ApprovalID: a.ID, RunID: a.RunID, CallID: a.CallID, ToolID: a.ToolID,
+		Status: a.Status, Action: a.Action, Resource: a.Resource, Impact: a.Impact,
+		Message: a.Message, ArgsHash: a.ArgsHash, PolicyHash: a.PolicyHash,
+		CreatedAt: a.CreatedAt.UTC().Format(time.RFC3339Nano),
+	}
 }
 
 func usageRowDTO(row usage.Row) UsageRowDTO {

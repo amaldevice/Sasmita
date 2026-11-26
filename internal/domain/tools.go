@@ -2,14 +2,14 @@ package domain
 
 import "encoding/json"
 
-// Tool events extend the versioned RunEvent stream. Approval decisions belong
-// to the later policy engine (#23); these events only describe what the agent
-// proposed and what it actually executed so that engine has something to act on.
+// Tool events extend the versioned RunEvent stream. The policy engine pauses
+// on a proposal; these events describe what was proposed, executed or denied.
 const (
 	EventToolProposed = "tool.proposed"
 	EventToolExecuted = "tool.executed"
 	EventToolArtifact = "tool.artifact"
 	EventToolFailed   = "tool.failed"
+	EventToolDenied   = "tool.denied"
 )
 
 // UI block events extend the same versioned RunEvent stream (TAD §12A.7). A
@@ -25,14 +25,16 @@ const (
 type AgentSignalKind string
 
 const (
-	AgentTextDelta    AgentSignalKind = "text_delta"
-	AgentUsage        AgentSignalKind = "usage"
-	AgentToolProposed AgentSignalKind = "tool_proposed"
-	AgentToolExecuted AgentSignalKind = "tool_executed"
-	AgentToolArtifact AgentSignalKind = "tool_artifact"
-	AgentToolFailed   AgentSignalKind = "tool_failed"
-	AgentToolPair     AgentSignalKind = "tool_pair"
-	AgentUIBlock      AgentSignalKind = "ui_block"
+	AgentTextDelta        AgentSignalKind = "text_delta"
+	AgentUsage            AgentSignalKind = "usage"
+	AgentToolProposed     AgentSignalKind = "tool_proposed"
+	AgentToolExecuted     AgentSignalKind = "tool_executed"
+	AgentToolArtifact     AgentSignalKind = "tool_artifact"
+	AgentToolFailed       AgentSignalKind = "tool_failed"
+	AgentToolDenied       AgentSignalKind = "tool_denied"
+	AgentApprovalRequired AgentSignalKind = "approval_required"
+	AgentToolPair         AgentSignalKind = "tool_pair"
+	AgentUIBlock          AgentSignalKind = "ui_block"
 )
 
 // UIBlockSignal is the app-owned shape of a validated render_ui outcome. The
@@ -47,11 +49,12 @@ type UIBlockSignal struct {
 // feed the coalesced answer; tool signals carry both UI detail and the raw
 // blocks that must be appended to canonical history.
 type AgentSignal struct {
-	Kind  AgentSignalKind
-	Text  string
-	Usage *Usage
-	Tool  ToolActivity
-	UI    *UIBlockSignal
+	Kind     AgentSignalKind
+	Text     string
+	Usage    *Usage
+	Tool     ToolActivity
+	Approval *Approval
+	UI       *UIBlockSignal
 }
 
 // ToolActivity is the provider-neutral description of one tool step.

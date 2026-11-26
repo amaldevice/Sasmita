@@ -18,6 +18,7 @@ import (
 	"github.com/amaldevice/sasmita/internal/genui"
 	"github.com/amaldevice/sasmita/internal/model"
 	"github.com/amaldevice/sasmita/internal/persistence/repositories"
+	"github.com/amaldevice/sasmita/internal/policy"
 	"github.com/amaldevice/sasmita/internal/runtime"
 	"github.com/amaldevice/sasmita/internal/tools"
 	"github.com/amaldevice/sasmita/internal/usage"
@@ -43,6 +44,11 @@ type Config struct {
 	AttachedFiles  []string
 	ToolOutputCap  int
 	Agent          agent.Engine
+	// Policy and Approvals wire the TAD §15.3 engine into the agent tool loop.
+	// A nil Policy gets the default matrix; nil Approvals gets a SQLite-backed
+	// coordinator sharing the store passed to New.
+	Policy    *policy.Engine
+	Approvals *runtime.ApprovalCoordinator
 	// Artifacts opts the service into Tier 2 artifact commands and tools (#28).
 	Artifacts *artifacts.Service
 	// ContextNote supplies dynamic information for the tail note on the new
@@ -68,6 +74,7 @@ type Service struct {
 	notes        *ctxlayout.NoteBuilder
 	compactor    ctxlayout.Compactor
 	runtime      *runtime.Manager
+	approvals    *runtime.ApprovalCoordinator
 	providerKind domain.ProviderKind
 	genui        *genui.Store
 }
@@ -88,6 +95,9 @@ func New(store *repositories.Store, cfg Config) *Service {
 	if cfg.NewID == nil {
 		cfg.NewID = randomID
 	}
+	if cfg.Approvals == nil {
+		cfg.Approvals = runtime.NewApprovalCoordinator(store, cfg.Policy)
+	}
 	var gen *genui.Store
 	if cfg.Agent == nil {
 		var registry *tools.Registry
@@ -106,6 +116,7 @@ func New(store *repositories.Store, cfg Config) *Service {
 		}
 		cfg.Agent = agent.New(agent.Config{
 			Provider: cfg.Provider, Tools: registry, GenUI: gen, NewID: cfg.NewID,
+			States: store, Approvals: approvalGateAdapter{coordinator: cfg.Approvals},
 		})
 	}
 	// Freeze tools for the lifetime of the service (one conversation per run).
@@ -134,6 +145,7 @@ func New(store *repositories.Store, cfg Config) *Service {
 			Now:               cfg.Now,
 		},
 		runtime:      cfg.Runtime,
+		approvals:    cfg.Approvals,
 		providerKind: kind,
 		genui:        gen,
 	}
