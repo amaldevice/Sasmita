@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/amaldevice/sasmita/internal/domain"
+	"github.com/amaldevice/sasmita/internal/harness"
 	"github.com/amaldevice/sasmita/internal/model"
 )
 
@@ -113,9 +114,12 @@ func (s *Service) start(ctx context.Context, req domain.StartRunRequest, origina
 	if modelRef == "" {
 		modelRef = s.cfg.DefaultModel
 	}
-	harness := req.HarnessID
-	if harness == "" {
-		harness = defaultHarness
+	modeID := req.HarnessID
+	if modeID == "" {
+		modeID = defaultHarness
+	}
+	if _, err := harness.Select(modeID); err != nil {
+		return nil, err
 	}
 	now := s.cfg.Now()
 	run := &domain.Run{
@@ -123,7 +127,7 @@ func (s *Service) start(ctx context.Context, req domain.StartRunRequest, origina
 		ConversationID: req.ConversationID,
 		Status:         domain.RunQueued,
 		ModelRef:       modelRef,
-		HarnessID:      harness,
+		HarnessID:      modeID,
 		StartedAt:      now,
 		OriginalRunID:  originalRunID,
 	}
@@ -290,7 +294,15 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 		s.fail(ctx, persistCtx, run, stream, err)
 		return
 	}
-	request := s.builder.Build(run.ConversationID, run.ModelRef, run.ID, history)
+	// Active context is a derived view of canonical history: Mode instructions
+	// and provider filtering never rewrite the stored messages.
+	mode, err := harness.Select(run.HarnessID)
+	if err != nil {
+		s.fail(ctx, persistCtx, run, stream, err)
+		return
+	}
+	view := harness.ActiveHistory(history, mode, s.providerKind)
+	request := s.builder.Build(run.ConversationID, run.ModelRef, run.ID, view)
 
 	var full, pending strings.Builder
 	var usage *model.Usage

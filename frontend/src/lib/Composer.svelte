@@ -1,7 +1,30 @@
 <script lang="ts">
+  import type { ModelInfo } from './connections';
   import { i18n } from './i18n.svelte';
+  import ModeSwitch from './ModeSwitch.svelte';
+  import type { Mode, SwitchEstimate } from './modes';
 
-  let { value = $bindable(''), onsubmit }: { value: string; onsubmit: (text: string) => void } = $props();
+  type Choice = 'mode' | 'model';
+
+  let {
+    value = $bindable(''),
+    onsubmit,
+    modes = [],
+    models = [],
+    modeId = 'chat',
+    modelId = '',
+    estimate = async () => ({ estimatedTokens: 0, warn: false, estimated: true }),
+    onselect = () => {},
+  }: {
+    value: string;
+    onsubmit: (text: string) => void;
+    modes?: Mode[];
+    models?: ModelInfo[];
+    modeId?: string;
+    modelId?: string;
+    estimate?: (kind: Choice, value: string) => Promise<SwitchEstimate>;
+    onselect?: (kind: Choice, value: string) => void;
+  } = $props();
 
   function submit(event: SubmitEvent) {
     event.preventDefault();
@@ -13,13 +36,16 @@
 </script>
 
 <form class="composer" onsubmit={submit}>
-  <textarea
-    data-testid="composer-input"
-    bind:value
-    rows="2"
-    placeholder={i18n.t('askAnything')}
-    aria-label={i18n.t('message')}
-  ></textarea>
+  <div class="composer-body">
+    <ModeSwitch {modes} {models} {modeId} {modelId} {estimate} {onselect} />
+    <textarea
+      data-testid="composer-input"
+      bind:value
+      rows="2"
+      placeholder={i18n.t('askAnything')}
+      aria-label={i18n.t('message')}
+    ></textarea>
+  </div>
   <button data-testid="send-button" type="submit">{i18n.t('send')}</button>
 </form>
 
@@ -33,8 +59,10 @@
     border-radius: 16px;
     background: var(--surface);
   }
+  .composer-body { flex: 1; min-width: 0; }
   textarea {
-    flex: 1;
+    display: block;
+    width: 100%;
     resize: none;
     border: 0;
     background: transparent;

@@ -113,6 +113,8 @@ type Bindings interface {
 	TestConnection(ctx context.Context, profileID string) (ConnectionResultDTO, error)
 	ListExamplePrompts(ctx context.Context) []ExamplePromptDTO
 	DetectLocalEndpoints(ctx context.Context) ([]LocalEndpointDTO, error)
+	ListModes(ctx context.Context) []ModeDTO
+	EstimateSwitch(ctx context.Context, req SwitchEstimateRequestDTO) (SwitchEstimateDTO, error)
 }
 
 // Service adapts the application service to the typed bindings. It is shared
