@@ -32,14 +32,18 @@ func (fileTool) Spec() Spec {
 	}
 }
 
-func (f fileTool) Execute(_ context.Context, args json.RawMessage) (string, error) {
+func (f fileTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
 	var in struct {
 		Path string `json:"path"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
 		return "", fmt.Errorf("invalid arguments: %w", err)
 	}
-	path, err := f.resolve(in.Path)
+	roots, attached := f.roots, f.attached
+	if scope, ok := ScopeFrom(ctx); ok {
+		roots, attached = scope.Roots, scope.Attached
+	}
+	path, err := f.resolve(roots, attached, in.Path)
 	if err != nil {
 		return "", err
 	}
@@ -55,11 +59,11 @@ func (f fileTool) Execute(_ context.Context, args json.RawMessage) (string, erro
 	return string(data), nil
 }
 
-func (f fileTool) resolve(requested string) (string, error) {
+func (f fileTool) resolve(roots, attached []string, requested string) (string, error) {
 	if strings.TrimSpace(requested) == "" {
 		return "", fmt.Errorf("path is required")
 	}
-	allowed := append(append([]string(nil), f.roots...), f.attached...)
+	allowed := append(append([]string(nil), roots...), attached...)
 	if len(allowed) == 0 {
 		return "", fmt.Errorf("no attached or project files are available")
 	}
@@ -74,10 +78,10 @@ func (f fileTool) resolve(requested string) (string, error) {
 	if filepath.IsAbs(requested) {
 		candidates = []string{requested}
 	} else {
-		for _, root := range f.roots {
+		for _, root := range roots {
 			candidates = append(candidates, filepath.Join(root, filepath.FromSlash(requested)))
 		}
-		for _, attached := range f.attached {
+		for _, attached := range attached {
 			if requested == attached || filepath.Base(attached) == filepath.Base(requested) {
 				candidates = append(candidates, attached)
 			}
@@ -160,7 +164,11 @@ func (s searchTool) Execute(ctx context.Context, args json.RawMessage) (string, 
 	if budget <= 0 {
 		budget = 2048
 	}
-	for _, root := range s.roots {
+	roots := s.roots
+	if scope, ok := ScopeFrom(ctx); ok {
+		roots = scope.Roots
+	}
+	for _, root := range roots {
 		_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 			if err != nil || len(out.Files) >= limit || budget <= 0 || ctx.Err() != nil {
 				return filepath.SkipAll

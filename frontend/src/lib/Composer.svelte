@@ -15,6 +15,9 @@
     modelId = '',
     estimate = async () => ({ estimatedTokens: 0, warn: false, estimated: true }),
     onselect = () => {},
+    attachments = [],
+    onattach = () => {},
+    onremoveattachment = () => {},
   }: {
     value: string;
     onsubmit: (text: string) => void;
@@ -24,7 +27,14 @@
     modelId?: string;
     estimate?: (kind: Choice, value: string) => Promise<SwitchEstimate>;
     onselect?: (kind: Choice, value: string) => void;
+    attachments?: string[];
+    onattach?: () => void | Promise<void>;
+    onremoveattachment?: (path: string) => void;
   } = $props();
+
+  function basename(path: string): string {
+    return path.split(/[\\/]/).pop() ?? path;
+  }
 
   function submit(event: SubmitEvent) {
     event.preventDefault();
@@ -46,8 +56,18 @@
       aria-label={i18n.t('message')}
     ></textarea>
   </div>
-  <button data-testid="send-button" type="submit">{i18n.t('send')}</button>
+  <div class="composer-actions">
+    <button data-testid="attach-button" type="button" onclick={() => void onattach()}>{i18n.t('attach')}</button>
+    <button data-testid="send-button" type="submit">{i18n.t('send')}</button>
+  </div>
 </form>
+{#if attachments.length > 0}
+  <div class="attachments" data-testid="attachment-list">
+    {#each attachments as path (path)}
+      <button data-testid="attachment-chip" title={path} onclick={() => onremoveattachment(path)}>{basename(path)} ×</button>
+    {/each}
+  </div>
+{/if}
 
 <style>
   .composer {
@@ -79,4 +99,14 @@
     font-weight: 600;
   }
   button:hover { background: var(--accent); }
+  .composer-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+  .composer-actions button[data-testid='attach-button'] {
+    padding: 7px 12px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--surface); color: var(--mute); font-weight: 400;
+  }
+  .attachments { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 24px -12px; }
+  .attachments button {
+    padding: 5px 9px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--raise); color: var(--mute); font-size: 12px;
+  }
 </style>

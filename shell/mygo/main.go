@@ -120,6 +120,14 @@ func (s *shellService) ListProjects(ctx context.Context) ([]desktop.ProjectDTO, 
 	return s.bindings.ListProjects(ctx)
 }
 
+// PickAttachments opens the native file picker and returns absolute paths.
+// The browser never sees file handles; tools receive only these explicit roots.
+func (s *shellService) PickAttachments(ctx context.Context) ([]string, error) {
+	return mygo.Dialog.Open(mygo.OpenDialogOptions{
+		Parent: mygo.CallerWindow(ctx), Title: "Attach files", Multiple: true,
+	})
+}
+
 // Diagnostics usage report. Hit-rate warnings live only in this command.
 func (s *shellService) GetUsageReport(ctx context.Context) (desktop.UsageReportDTO, error) {
 	return s.bindings.GetUsageReport(ctx)

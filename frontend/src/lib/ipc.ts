@@ -41,6 +41,8 @@ export interface IPC {
   moveConversation(conversationId: string, projectId: string): Promise<Conversation>;
   searchConversations(query: string, limit: number): Promise<SearchResult[]>;
   listProjects(): Promise<Project[]>;
+  /** Native file picker; returns filesystem paths usable as tool roots. */
+  pickAttachments(): Promise<string[]>;
   startRun(req: StartRunRequest, onEvent: (event: RunEvent) => void): Promise<RunHandle>;
   cancelRun(runId: string): Promise<void>;
   listRuns(conversationId: string): Promise<RunRecord[]>;
@@ -130,6 +132,10 @@ export class MyGoIPC implements IPC {
     return shellService.listProjects();
   }
 
+  pickAttachments(): Promise<string[]> {
+    return shellService.pickAttachments();
+  }
+
   getRunSnapshot(runId: string): Promise<RunSnapshot> {
     return shellService.getRunSnapshot(runId);
   }
@@ -169,6 +175,7 @@ interface StoredState {
   runs: RunRecord[];
   projects: Project[];
   approvals: Record<string, StoredApproval>;
+  attachmentsByRun: Record<string, string[]>;
 }
 
 function seedState(): StoredState {
@@ -191,6 +198,7 @@ function seedState(): StoredState {
       { id: 'p2', name: 'Personal', rootUri: '', createdAt: now, updatedAt: now },
     ],
     approvals: {},
+    attachmentsByRun: {},
   };
 }
 
@@ -219,6 +227,7 @@ export class FakeIPC implements IPC {
             runs: parsed.runs ?? [],
             projects: parsed.projects ?? seedState().projects,
             approvals: parsed.approvals ?? {},
+            attachmentsByRun: parsed.attachmentsByRun ?? {},
           }
         : seedState();
     } catch {
@@ -303,6 +312,10 @@ export class FakeIPC implements IPC {
 
   async listProjects(): Promise<Project[]> {
     return structuredClone(this.state.projects);
+  }
+
+  async pickAttachments(): Promise<string[]> {
+    return ['note.txt'];
   }
 
   async getRunSnapshot(runId: string): Promise<RunSnapshot> {
@@ -422,6 +435,7 @@ export class FakeIPC implements IPC {
       status: 'running',
       answer: '',
     });
+    this.state.attachmentsByRun[runId] = [...(req.attachments ?? [])];
     this.save();
     this.replay(runId, req.conversationId, onEvent);
     return { runId };

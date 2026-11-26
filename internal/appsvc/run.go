@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/url"
 	"strings"
 	"sync"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/amaldevice/sasmita/internal/genui"
 	"github.com/amaldevice/sasmita/internal/model"
 	"github.com/amaldevice/sasmita/internal/modes"
+	"github.com/amaldevice/sasmita/internal/tools"
 )
 
 // eventStream is a bounded channel for UI delivery. Coalescable events are
@@ -103,6 +105,7 @@ func (s *Service) ResumeRun(ctx context.Context, originalRunID string) (*RunHand
 		ModelRef:       original.ModelRef,
 		ModeID:         original.ModeID,
 		ProviderID:     original.ProviderID,
+		Attachments:    original.Attachments,
 	}, original.ID)
 }
 
@@ -156,6 +159,7 @@ func (s *Service) start(ctx context.Context, req domain.StartRunRequest, origina
 		ModelRef:       modelRef,
 		ModeID:         modeID,
 		ProviderID:     req.ProviderID,
+		Attachments:    append([]string(nil), req.Attachments...),
 		StartedAt:      now,
 		OriginalRunID:  originalRunID,
 	}
@@ -335,8 +339,21 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 		s.fail(ctx, persistCtx, run, stream, err)
 		return
 	}
-	roots := append([]string(nil), s.cfg.WorkspaceRoots...)
-	roots = append(roots, s.cfg.AttachedFiles...)
+	// Folder access comes from the conversation's project, never from a
+	// service-wide setting. A conversation without a project has no folder at
+	// all; only files explicitly attached to this run are readable (story 16).
+	roots := make([]string, 0, 1+len(run.Attachments))
+	if conv.ProjectID != "" {
+		if project, err := s.store.GetProject(persistCtx, conv.ProjectID); err == nil {
+			if root := projectRoot(project.RootURI); root != "" {
+				roots = append(roots, root)
+			}
+		}
+	}
+	attached := append([]string(nil), run.Attachments...)
+	roots = append(roots, attached...)
+	scope := tools.Scope{Roots: roots, Attached: attached}
+	agentCtx := tools.WithScope(ctx, scope)
 	checkpointID := run.ID
 	if run.OriginalRunID != "" {
 		checkpointID = run.OriginalRunID
@@ -357,7 +374,7 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 	// The ADK-backed agent owns the tool loop. It appends tool call/result
 	// pairs to canonical history through the signals below; the earlier prefix
 	// is never rewritten (ADR-0001).
-	result, streamErr := s.cfg.Agent.Run(ctx, agent.Request{
+	result, streamErr := s.cfg.Agent.Run(agentCtx, agent.Request{
 		ConversationID: run.ConversationID, RunID: run.ID, CheckpointID: checkpointID,
 		Mode: run.ModeID, ProjectID: conv.ProjectID, ScopeRoots: roots,
 		ModelRef: run.ModelRef, History: view, Provider: provider,
@@ -608,6 +625,23 @@ func (s *Service) SaveUIState(ctx context.Context, runID, blockID string, patch 
 	}
 	_, err = s.store.AppendRunEvent(ctx, runID, domain.EventUIState, raw)
 	return err
+}
+
+// projectRoot converts a project root_uri to a filesystem path. An empty or
+// non-file URI yields no root, which keeps the no-project sentinel isolated.
+func projectRoot(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	u, err := url.Parse(trimmed)
+	if err == nil && u.Scheme == "file" {
+		return u.Path
+	}
+	if err == nil && u.Scheme != "" {
+		return ""
+	}
+	return trimmed
 }
 
 func rawParts(blocks []json.RawMessage) []domain.ContentPart {

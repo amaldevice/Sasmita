@@ -88,6 +88,7 @@ export interface StartRunRequestDTO {
   modelRef: string;
   modeId: string;
   providerId?: string;
+  attachments?: string[];
 }
 
 // ---- Services ----
@@ -99,6 +100,8 @@ export const shellService = {
   getRunSnapshot: bind<[string], RunSnapshotDTO>("shellService.GetRunSnapshot", (runID: string) => [runID]),
   getUIData: bind<[string, number], UIDataDTO>("shellService.GetUIData", (ref: string, limit: number) => [ref, limit]),
   saveUIState: bind<[string, string, unknown], void>("shellService.SaveUIState", (runID: string, blockID: string, patch: unknown) => [runID, blockID, patch]),
+  /** Native file picker; returns absolute paths, never browser file handles. */
+  pickAttachments: bind<[], string[]>("shellService.PickAttachments", () => []),
   listConversations: bind<[string, string, number], ConversationPageDTO>("shellService.ListConversations", (projectID: string, cursor: string, limit: number) => [projectID, cursor, limit]),
   listRuns: bind<[string], RunDTO[]>("shellService.ListRuns", (conversationID: string) => [conversationID]),
   listProjects: bind<[], ProjectDTO[]>("shellService.ListProjects", () => []),

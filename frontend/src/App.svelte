@@ -52,6 +52,7 @@
   let selectedId = $state('');
   let detail = $state<ConversationDetail | null>(null);
   let draft = $state('');
+  let attachments = $state<string[]>([]);
   let run = $state(new ChatRun());
   let runs = $state<RunRecord[]>([]);
   let badges = $state<Record<string, SidebarBadge>>({});
@@ -289,6 +290,16 @@
     else modelId = value;
   }
 
+  async function attachFiles() {
+    if (!ipc) return;
+    const picked = await ipc.pickAttachments();
+    attachments = [...new Set([...attachments, ...picked])];
+  }
+
+  function removeAttachment(path: string) {
+    attachments = attachments.filter((item) => item !== path);
+  }
+
   // A provider switch changes the adapter for the next run, not just the model.
   async function selectProfile(id: string) {
     providerId = id;
@@ -310,9 +321,10 @@
     detail.messages = [...detail.messages, userMessage];
     run.begin();
     const handle = await ipc.startRun(
-      { conversationId: selectedId, text, modelRef: modelId || 'gpt-test', modeId, providerId },
+      { conversationId: selectedId, text, modelRef: modelId || 'gpt-test', modeId, providerId, attachments },
       applyEvent,
     );
+    attachments = [];
     run.setRunId(handle.runId);
   }
 
@@ -564,6 +576,9 @@
         {modelId}
         estimate={estimateSelection}
         onselect={selectChoice}
+        {attachments}
+        onattach={attachFiles}
+        onremoveattachment={removeAttachment}
       />
     {:else if view === 'search'}
       <section class="view" data-testid="search-view">

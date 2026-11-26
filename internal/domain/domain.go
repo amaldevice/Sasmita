@@ -108,6 +108,7 @@ type Run struct {
 	ModelRef       string
 	ModeID         string
 	ProviderID     string
+	Attachments    []string
 	StartedAt      time.Time
 	FinishedAt     *time.Time
 	OriginalRunID  string
@@ -128,11 +129,12 @@ type Usage struct {
 
 // StartRunRequest is the typed IPC command payload for StartRun.
 type StartRunRequest struct {
-	ConversationID string `json:"conversationId"`
-	Text           string `json:"text"`
-	ModelRef       string `json:"modelRef"`
-	ModeID         string `json:"modeId"`
-	ProviderID     string `json:"providerId,omitempty"`
+	ConversationID string   `json:"conversationId"`
+	Text           string   `json:"text"`
+	ModelRef       string   `json:"modelRef"`
+	ModeID         string   `json:"modeId"`
+	ProviderID     string   `json:"providerId,omitempty"`
+	Attachments    []string `json:"attachments,omitempty"`
 }
 
 var (

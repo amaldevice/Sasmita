@@ -110,11 +110,12 @@ type ConversationDetailDTO struct {
 }
 
 type StartRunRequestDTO struct {
-	ConversationID string `json:"conversationId"`
-	Text           string `json:"text"`
-	ModelRef       string `json:"modelRef"`
-	ModeID         string `json:"modeId"`
-	ProviderID     string `json:"providerId,omitempty"`
+	ConversationID string   `json:"conversationId"`
+	Text           string   `json:"text"`
+	ModelRef       string   `json:"modelRef"`
+	ModeID         string   `json:"modeId"`
+	ProviderID     string   `json:"providerId,omitempty"`
+	Attachments    []string `json:"attachments,omitempty"`
 }
 
 // RunHandleDTO is a Go-side binding handle. A shell adapter drains Events into
@@ -335,6 +336,7 @@ func (s *Service) StartRun(ctx context.Context, req StartRunRequestDTO) (RunHand
 		ModelRef:       req.ModelRef,
 		ModeID:         req.ModeID,
 		ProviderID:     req.ProviderID,
+		Attachments:    req.Attachments,
 	})
 	if err != nil {
 		return RunHandleDTO{}, err
