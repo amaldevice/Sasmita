@@ -9,6 +9,7 @@ import (
 
 	"github.com/amaldevice/sasmita/internal/agent"
 	"github.com/amaldevice/sasmita/internal/domain"
+	"github.com/amaldevice/sasmita/internal/genui"
 	"github.com/amaldevice/sasmita/internal/harness"
 	"github.com/amaldevice/sasmita/internal/model"
 )
@@ -133,12 +134,17 @@ func (s *Service) start(ctx context.Context, req domain.StartRunRequest, origina
 		OriginalRunID:  originalRunID,
 	}
 	content := domain.TextContent(req.Text)
-	if s.cfg.ContextNote != nil {
-		if note := strings.TrimSpace(s.cfg.ContextNote()); note != "" {
-			// Dynamic information is a tail context note on the new user turn,
-			// never part of the static system instruction (ADR-0001).
-			content = append(content, domain.ContentPart{Type: "context_note", Text: note})
-		}
+	// Dynamic information is a tail context note on the new user turn, never
+	// part of the static system instruction (ADR-0001). It carries only deltas
+	// since the previous note (GLOSSARY "context note").
+	var note string
+	if s.cfg.NoteSource != nil {
+		note = s.notes.Next(now, s.cfg.NoteSource())
+	} else if s.cfg.ContextNote != nil {
+		note = s.notes.Observe(now, s.cfg.ContextNote())
+	}
+	if note = strings.TrimSpace(note); note != "" {
+		content = append(content, domain.ContentPart{Type: "context_note", Text: note})
 	}
 	userMessage := &domain.Message{
 		ID:             s.cfg.NewID(),
@@ -288,22 +294,16 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 		domain.StatusPayload{Envelope: envelope(), Status: string(domain.RunRunning)})
 	s.emit(persistCtx, stream, run.ID, domain.EventModelRequestStarted, envelope())
 
-	// Full canonical history: no sliding window. Compaction is a separate
-	// ticket and is the only event allowed to change the prefix (ADR-0001).
-	history, err := s.store.ListMessages(persistCtx, run.ConversationID, 0)
+	// Active context is a derived view of canonical history: Mode instructions,
+	// provider filtering and compaction never rewrite stored messages. The ADK
+	// agent builds each request from this view plus appended tool pairs.
+	_, view, err := s.activeContext(persistCtx, run.ConversationID, run.HarnessID)
 	if err != nil {
 		s.fail(ctx, persistCtx, run, stream, err)
 		return
 	}
-	// Active context is a derived view of canonical history: Mode instructions
-	// and provider filtering never rewrite the stored messages. The ADK agent
-	// builds each request from this view plus appended tool pairs.
-	mode, err := harness.Select(run.HarnessID)
-	if err != nil {
-		s.fail(ctx, persistCtx, run, stream, err)
-		return
-	}
-	view := harness.ActiveHistory(history, mode, s.providerKind)
+	// Approval scope and the checkpoint ID come from the stored run: a resumed
+	// attempt reuses the original run's approval decisions and checkpoint.
 	conv, err := s.store.GetConversation(persistCtx, run.ConversationID)
 	if err != nil {
 		s.fail(ctx, persistCtx, run, stream, err)
@@ -316,8 +316,10 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 		checkpointID = run.OriginalRunID
 	}
 
+
 	var full, pending strings.Builder
 	var contentBlocks []json.RawMessage
+	var uiBlocks []json.RawMessage
 	flush := func() {
 		if pending.Len() == 0 {
 			return
@@ -349,6 +351,11 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 			s.emitToolSignal(persistCtx, stream, run.ID, sig)
 		case domain.AgentToolPair:
 			s.appendToolPair(persistCtx, run, sig.Tool)
+		case domain.AgentUIBlock:
+			s.emitUIBlock(persistCtx, stream, run.ID, sig.UI)
+			if sig.UI != nil && len(sig.UI.Spec) > 0 {
+				uiBlocks = append(uiBlocks, uiBlockContent(*sig.UI))
+			}
 		}
 	})
 	flush()
@@ -361,7 +368,7 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 		s.emit(persistCtx, stream, run.ID, domain.EventModelUsage,
 			domain.UsagePayload{Envelope: envelope(), Usage: toDomainUsage(*result.Usage)})
 	}
-	contentBlocks = result.Blocks
+	contentBlocks = append(result.Blocks, uiBlocks...)
 
 	if full.Len() > 0 || len(contentBlocks) > 0 {
 		s.persistAssistant(persistCtx, run, full.String(), contentBlocks)
@@ -383,6 +390,10 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 		s.fail(ctx, persistCtx, run, stream, streamErr)
 		return
 	}
+
+	// Compaction is the only allowed prefix reset; it happens at a safe
+	// boundary after the assistant turn is persisted (ADR-0001, TAD §11.5).
+	s.maybeCompact(persistCtx, stream, run)
 
 	now := s.cfg.Now()
 	_ = s.store.UpdateRunStatus(persistCtx, run.ID, domain.RunCompleted, &now)
@@ -427,6 +438,7 @@ func (s *Service) persistAssistant(ctx context.Context, run *domain.Run, text st
 		Role:           domain.RoleAssistant,
 		Content:        parts,
 		CreatedAt:      s.cfg.Now(),
+		RunID:          run.ID,
 	}
 	_ = s.store.AddMessage(ctx, message)
 }
@@ -517,6 +529,58 @@ func (s *Service) appendToolPair(ctx context.Context, run *domain.Run, activity 
 			Role: domain.RoleUser, Content: parts, CreatedAt: now,
 		})
 	}
+}
+
+// emitUIBlock persists the validated spec as a versioned RunEvent so a reload
+// can re-render the block from stored spec and artifact references.
+func (s *Service) emitUIBlock(ctx context.Context, stream *eventStream, runID string, block *domain.UIBlockSignal) {
+	if block == nil {
+		return
+	}
+	payload := genui.BlockEvent{
+		SchemaVersion: genui.SchemaVersion, BlockID: block.BlockID,
+		Spec: block.Spec, Reason: block.Reason,
+	}
+	_ = s.emit(ctx, stream, runID, domain.EventUIBlock, payload)
+}
+
+func uiBlockContent(block domain.UIBlockSignal) json.RawMessage {
+	encoded, _ := model.MarshalDeterministic(struct {
+		Type    string          `json:"type"`
+		BlockID string          `json:"blockId"`
+		Spec    json.RawMessage `json:"spec,omitempty"`
+		Reason  string          `json:"reason,omitempty"`
+	}{Type: "ui_block", BlockID: block.BlockID, Spec: block.Spec, Reason: block.Reason})
+	return encoded
+}
+
+// SaveUIState appends a small, user-committed state patch. It validates keys
+// against the stored spec when available and never treats a patch as a tool
+// call or a model request.
+func (s *Service) SaveUIState(ctx context.Context, runID, blockID string, patch json.RawMessage) error {
+	if len(patch) == 0 || len(patch) > genui.MaxPatchBytes {
+		return domain.ErrInvalidArgument
+	}
+	if s.genui != nil {
+		if stored, ok := s.genui.Get(blockID); ok {
+			var spec genui.Spec
+			if err := json.Unmarshal(stored, &spec); err != nil {
+				return domain.ErrInvalidArgument
+			}
+			if err := genui.ValidatePatch(patch, spec); err != nil {
+				return err
+			}
+		}
+	}
+	payload := genui.UIStateEvent{
+		SchemaVersion: genui.SchemaVersion, BlockID: blockID, RunID: runID, Patch: patch,
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	_, err = s.store.AppendRunEvent(ctx, runID, domain.EventUIState, raw)
+	return err
 }
 
 func rawParts(blocks []json.RawMessage) []domain.ContentPart {

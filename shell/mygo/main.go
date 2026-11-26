@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/amaldevice/sasmita/internal/appsvc"
+	"github.com/amaldevice/sasmita/internal/artifacts"
 	"github.com/amaldevice/sasmita/internal/desktop"
 	"github.com/amaldevice/sasmita/internal/domain"
 	"github.com/amaldevice/sasmita/internal/model/adapters/openai"
@@ -24,6 +26,8 @@ import (
 
 type shellService struct {
 	bindings *desktop.Service
+	app      *appsvc.Service
+	live     liveReporter
 }
 
 func (s *shellService) CreateConversation(ctx context.Context, projectID, title, harnessID string) (desktop.ConversationDTO, error) {
@@ -44,6 +48,16 @@ func (s *shellService) GetConversation(ctx context.Context, conversationID strin
 
 func (s *shellService) GetRunSnapshot(ctx context.Context, runID string) (desktop.RunSnapshotDTO, error) {
 	return s.bindings.GetRunSnapshot(ctx, runID)
+}
+
+// UI blocks fetch large datasets through this bounded, read-only API instead
+// of receiving them in the prompt.
+func (s *shellService) GetUIData(ctx context.Context, ref string, limit int) (desktop.UIDataDTO, error) {
+	return s.bindings.GetUIData(ctx, ref, limit)
+}
+
+func (s *shellService) SaveUIState(ctx context.Context, runID, blockID string, patch json.RawMessage) error {
+	return s.bindings.SaveUIState(ctx, runID, blockID, patch)
 }
 
 func (s *shellService) CancelRun(ctx context.Context, runID string) error {
@@ -104,6 +118,11 @@ func (s *shellService) SearchConversations(ctx context.Context, query string, li
 
 func (s *shellService) ListProjects(ctx context.Context) ([]desktop.ProjectDTO, error) {
 	return s.bindings.ListProjects(ctx)
+}
+
+// Diagnostics usage report. Hit-rate warnings live only in this command.
+func (s *shellService) GetUsageReport(ctx context.Context) (desktop.UsageReportDTO, error) {
+	return s.bindings.GetUsageReport(ctx)
 }
 
 // streamRun forwards RunEvents through a typed MyGo channel. The method stays
@@ -168,6 +187,14 @@ func setup(shell *shellService) error {
 		return err
 	}
 	store := repositories.New(db)
+	// Tier 2 artifacts: payloads live next to the DB; metadata is mirrored into
+	// it. The read-only scheme handler must be registered before any window.
+	artifactStore := artifacts.NewStore(filepath.Join(filepath.Dir(dbPath), "artifacts"))
+	artifactStore.DB = db
+	artifactService := &artifacts.Service{Store: artifactStore}
+	if err := mygo.Protocol.Handle(artifacts.Scheme, artifacts.NewHandler(artifactStore)); err != nil {
+		return err
+	}
 	now := time.Now()
 	// v1 has a single default Mode workspace; later tickets add project UI.
 	_ = store.CreateProject(context.Background(), &domain.Project{
@@ -187,9 +214,13 @@ func setup(shell *shellService) error {
 		APIKey:     os.Getenv("SASMITA_OPENAI_API_KEY"),
 		ProviderID: "openai",
 	}
+	artifactsDir := filepath.Join(os.TempDir(), "sasmita-artifacts")
 	app := appsvc.New(store, appsvc.Config{
 		Provider:     adapter,
 		DefaultModel: modelRef,
+		EnableTools:  true,
+		ArtifactsDir: artifactsDir,
+		Artifacts:    artifactService,
 	})
 	// Runs left active by a previous process cannot still be executing here.
 	if _, err := app.RecoverStaleRuns(context.Background()); err != nil {
@@ -198,7 +229,10 @@ func setup(shell *shellService) error {
 	providerService := appsvc.NewProviderService(store, appsvc.ProviderServiceConfig{
 		Secrets: secrets.NewKeychain(),
 	})
-	shell.bindings = desktop.NewServiceWithProviders(app, providerService)
+	bindings := desktop.NewServiceWithProviders(app, providerService)
+	bindings.SetUIDataDir(artifactsDir)
+	shell.bindings = bindings
+	shell.app = app
 	return nil
 }
 
@@ -210,7 +244,18 @@ func main() {
 			log.Printf("Sasmita setup failed: %v", err)
 			return
 		}
-		mygo.NewWindow(mygo.WindowOptions{Title: "Sasmita", URL: "/"})
+		win := mygo.NewWindow(mygo.WindowOptions{Title: "Sasmita", URL: "/"})
+		// MyGo v0.10 treats custom schemes as trusted in the main frame.
+		// NavigateEvent has no frame flag; iframe loads of artifact:// are not
+		// user-initiated, so blocking user-initiated ones keeps inline
+		// artifacts working while stopping link clicks out of the trusted UI.
+		win.Page().OnWillNavigate(func(e *mygo.NavigateEvent) {
+			if e.UserInitiated && artifacts.RejectMainFrameNavigation(e.URL) != nil {
+				log.Printf("blocked navigation to %s", e.URL)
+				e.PreventDefault()
+			}
+		})
+		startWatchdog(context.Background(), win.Page(), shell.app, &shell.live)
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)

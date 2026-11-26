@@ -184,6 +184,9 @@ func (l *loopAgent) dispatchCalls(ctx context.Context, calls []model.ToolCall, b
 		} else {
 			emit(domain.AgentSignal{Kind: domain.AgentToolExecuted, Tool: activity})
 		}
+		if call.Name == "render_ui" {
+			l.emitUIBlock(out.Output, emit)
+		}
 		content := out.Output
 		if out.Truncated {
 			content += " " + out.ArtifactRef
@@ -207,6 +210,30 @@ func (l *loopAgent) dispatchCalls(ctx context.Context, calls []model.ToolCall, b
 		},
 	})
 	return nil
+}
+
+// emitUIBlock turns the small render_ui acknowledgement into a signal carrying
+// the host-side spec. The spec never travelled back through the model request.
+func (l *loopAgent) emitUIBlock(output string, emit func(domain.AgentSignal)) {
+	var ack struct {
+		Kind    string `json:"kind"`
+		BlockID string `json:"blockId"`
+		Reason  string `json:"reason"`
+	}
+	if err := json.Unmarshal([]byte(output), &ack); err != nil {
+		return
+	}
+	block := &domain.UIBlockSignal{BlockID: ack.BlockID, Reason: ack.Reason}
+	if ack.Kind == "ui_block" {
+		if l.engine.cfg.GenUI == nil {
+			block.Reason = "UI block store is not configured"
+		} else if spec, ok := l.engine.cfg.GenUI.Get(ack.BlockID); ok {
+			block.Spec = spec
+		} else {
+			block.Reason = "UI block spec expired"
+		}
+	}
+	emit(domain.AgentSignal{Kind: domain.AgentUIBlock, UI: block})
 }
 
 func (l *loopAgent) newID() string {

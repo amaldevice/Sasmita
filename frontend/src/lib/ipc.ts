@@ -2,8 +2,13 @@ import { bind, Channel, isMyGo } from 'mygo-runtime';
 import approvalReplay from '../fixtures/approval-events.json';
 import replay from '../fixtures/run-events.json';
 import toolReplay from '../fixtures/tool-events.json';
+import uiDataFixture from '../fixtures/ui-data.json';
+import uiFallbackReplay from '../fixtures/ui-fallback.json';
+import uiReplay from '../fixtures/ui-blocks.json';
 import { shellService } from '../mygo';
 import { isActiveStatus, latestSeq } from './activity';
+import { usageFromEvents } from './usage';
+import { parseUIBlock } from './uiblocks';
 import type {
   Approval,
   ApprovalDecision,
@@ -17,6 +22,8 @@ import type {
   RunRecord,
   RunSnapshot,
   StartRunRequest,
+  UIData,
+  UIBlock,
 } from './types';
 
 /** The typed IPC surface the Go shell (MyGo, or the Wails fallback) provides. */
@@ -40,6 +47,10 @@ export interface IPC {
   getRunSnapshot(runId: string): Promise<RunSnapshot>;
   listPendingApprovals(conversationId: string): Promise<Approval[]>;
   resolveApproval(approvalId: string, decision: ApprovalDecision, args?: string): Promise<void>;
+  /** Bounded, read-only fetch of a large dataset referenced by a UI block. */
+  getUIData(ref: string, limit: number): Promise<UIData>;
+  /** Persist a committed, debounced view-local state patch as an append-only event. */
+  saveUIState(runId: string, blockId: string, patch: Record<string, unknown>): Promise<void>;
 }
 
 // The generated client is refreshed by `mygo generate`; these two bindings use
@@ -73,7 +84,11 @@ export class MyGoIPC implements IPC {
     const detail = await shellService.getConversation(conversationId);
     return {
       conversation: detail.conversation,
-      messages: detail.messages.map((m) => ({ ...m, role: m.role as Role })),
+      messages: detail.messages.map((m) => ({
+        ...m,
+        role: m.role as Role,
+        blocks: (m.blocks ?? []).map(parseUIBlock).filter((block): block is UIBlock => block !== null),
+      })),
     };
   }
 
@@ -123,6 +138,15 @@ export class MyGoIPC implements IPC {
 
   async resolveApproval(approvalId: string, decision: ApprovalDecision, args = ''): Promise<void> {
     await resolveApprovalBinding(approvalId, decision, args);
+  }
+
+  async getUIData(ref: string, limit: number): Promise<UIData> {
+    const data = await shellService.getUIData(ref, limit);
+    return { ref: data.ref, rows: (data.rows ?? []) as UIData['rows'], truncated: !!data.truncated };
+  }
+
+  async saveUIState(runId: string, blockId: string, patch: Record<string, unknown>): Promise<void> {
+    await shellService.saveUIState(runId, blockId, patch);
   }
 }
 
@@ -304,6 +328,27 @@ export class FakeIPC implements IPC {
     }
   }
 
+  async getUIData(ref: string, limit: number): Promise<UIData> {
+    if (!ref.startsWith('artifact://')) throw new Error('data reference is not an opaque artifact');
+    const cap = limit > 0 && limit < 2000 ? limit : 2000;
+    const all = uiDataFixture as UIData['rows'];
+    const rows = all.slice(0, cap);
+    return { ref, rows: structuredClone(rows), truncated: all.length > rows.length };
+  }
+
+  async saveUIState(runId: string, blockId: string, patch: Record<string, unknown>): Promise<void> {
+    const snapshot = this.state.snapshots[runId];
+    if (!snapshot) throw new Error(`run ${runId} not found`);
+    snapshot.events.push({
+      runId,
+      seq: latestSeq(snapshot.events) + 1,
+      type: 'ui.state',
+      timestamp: new Date().toISOString(),
+      payload: { version: 1, schemaVersion: 'sasmita.ui/v1', blockId, patch },
+    });
+    this.save();
+  }
+
   async listRuns(conversationId: string): Promise<RunRecord[]> {
     let changed = false;
     for (const run of this.state.runs) {
@@ -403,11 +448,18 @@ export class FakeIPC implements IPC {
     this.controllers.set(runId, controller);
     this.listeners.set(runId, onEvent);
     let answer = '';
+    const blocks: UIBlock[] = [];
 
     const params = new URLSearchParams(location.search);
     const stream = (params.get('approval') === '1'
       ? approvalReplay
-      : params.get('tools') === '1' ? toolReplay : replay) as RunEvent[];
+      : params.get('tools') === '1'
+        ? toolReplay
+        : params.get('ui') === 'fallback'
+          ? uiFallbackReplay
+          : params.get('ui') === '1'
+            ? uiReplay
+            : replay) as RunEvent[];
     void (async () => {
       for (const recorded of stream) {
         if (controller.cancelled) break;
@@ -449,6 +501,10 @@ export class FakeIPC implements IPC {
           answer += (event.payload as { text: string }).text;
           snapshot.answer = answer;
         }
+        if (event.type === 'ui.block') {
+          const block = parseUIBlock(event.payload);
+          if (block) blocks.push(block);
+        }
         snapshot.events.push(event);
         if (event.type === 'run.completed' || event.type === 'run.failed' || event.type === 'run.cancelled') {
           snapshot.status = event.type === 'run.completed' ? 'completed' : event.type === 'run.failed' ? 'failed' : 'cancelled';
@@ -461,7 +517,11 @@ export class FakeIPC implements IPC {
               conversationId,
               role: 'assistant',
               text: answer,
+              blocks: blocks.length > 0 ? structuredClone(blocks) : undefined,
               createdAt: new Date().toISOString(),
+              // Usage belongs to the answer, so a reopened conversation still
+              // shows the same figures on hover (same data as the Go read path).
+              usage: usageFromEvents(snapshot.events) ?? undefined,
             },
           ];
           const record = this.state.runs.find((run) => run.runId === runId);

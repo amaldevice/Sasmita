@@ -133,8 +133,8 @@ func (s *Store) AddMessage(ctx context.Context, m *domain.Message) error {
 		return err
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO messages(id, conversation_id, role, content_json, created_at) VALUES(?,?,?,?,?)`,
-		m.ID, m.ConversationID, string(m.Role), string(content), stamp(m.CreatedAt))
+		`INSERT INTO messages(id, conversation_id, role, content_json, created_at, run_id) VALUES(?,?,?,?,?,?)`,
+		m.ID, m.ConversationID, string(m.Role), string(content), stamp(m.CreatedAt), nullableID(m.RunID))
 	return err
 }
 
@@ -142,7 +142,7 @@ func (s *Store) AddMessage(ctx context.Context, m *domain.Message) error {
 // the most recent `limit` messages are kept, still in append order.
 func (s *Store) ListMessages(ctx context.Context, conversationID string, limit int) ([]domain.Message, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, conversation_id, role, content_json, created_at
+		`SELECT id, conversation_id, role, content_json, created_at, run_id
 		 FROM messages WHERE conversation_id = ? ORDER BY rowid ASC`, conversationID)
 	if err != nil {
 		return nil, err
@@ -153,8 +153,12 @@ func (s *Store) ListMessages(ctx context.Context, conversationID string, limit i
 	for rows.Next() {
 		var m domain.Message
 		var raw, created string
-		if err := rows.Scan(&m.ID, &m.ConversationID, (*string)(&m.Role), &raw, &created); err != nil {
+		var runID sql.NullString
+		if err := rows.Scan(&m.ID, &m.ConversationID, (*string)(&m.Role), &raw, &created, &runID); err != nil {
 			return nil, err
+		}
+		if runID.Valid {
+			m.RunID = runID.String
 		}
 		if err := json.Unmarshal([]byte(raw), &m.Content); err != nil {
 			return nil, fmt.Errorf("message %s content: %w", m.ID, err)

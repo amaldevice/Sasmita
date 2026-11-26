@@ -12,6 +12,14 @@ const (
 	EventToolDenied   = "tool.denied"
 )
 
+// UI block events extend the same versioned RunEvent stream (TAD §12A.7). A
+// block carries its validated spec; a state event carries only a small,
+// user-committed patch. Neither ever contains model-generated code.
+const (
+	EventUIBlock = "ui.block"
+	EventUIState = "ui.state"
+)
+
 // AgentSignalKind identifies a normalized agent-runtime signal. No provider or
 // ADK type is visible at this boundary.
 type AgentSignalKind string
@@ -26,7 +34,16 @@ const (
 	AgentToolDenied       AgentSignalKind = "tool_denied"
 	AgentApprovalRequired AgentSignalKind = "approval_required"
 	AgentToolPair         AgentSignalKind = "tool_pair"
+	AgentUIBlock          AgentSignalKind = "ui_block"
 )
+
+// UIBlockSignal is the app-owned shape of a validated render_ui outcome. The
+// spec is host-side JSON; Reason is set instead when validation failed closed.
+type UIBlockSignal struct {
+	BlockID string
+	Spec    json.RawMessage
+	Reason  string
+}
 
 // AgentSignal is one observable step of an agent run. Text and usage signals
 // feed the coalesced answer; tool signals carry both UI detail and the raw
@@ -37,6 +54,7 @@ type AgentSignal struct {
 	Usage    *Usage
 	Tool     ToolActivity
 	Approval *Approval
+	UI       *UIBlockSignal
 }
 
 // ToolActivity is the provider-neutral description of one tool step.

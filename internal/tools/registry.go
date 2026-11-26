@@ -53,6 +53,9 @@ type Config struct {
 	Search         ConversationSearcher
 	OutputCap      int // 0 means 4096 bytes
 	NewID          func() string
+	// Artifacts opts the registry into the Tier 2 artifact tools (#28). Nil
+	// keeps #22's frozen tool set and request bytes unchanged.
+	Artifacts ArtifactEditor
 }
 
 // Result is a normalized tool outcome. Oversized output never leaves the
@@ -94,8 +97,15 @@ func New(cfg Config) *Registry {
 	})
 	r.register(calculator{})
 	r.register(artifactTool{artifacts: r.artifacts})
+	if cfg.Artifacts != nil {
+		registerArtifactTools(r, cfg.Artifacts)
+	}
 	return r
 }
+
+// Register adds an additional built-in after New. Definitions are re-sorted so
+// the provider request layout stays deterministic (ADR-0001).
+func (r *Registry) Register(t Tool) { r.register(t) }
 
 func (r *Registry) register(t Tool) {
 	spec := t.Spec()

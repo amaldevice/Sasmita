@@ -16,6 +16,7 @@ import (
 
 	ctxlayout "github.com/amaldevice/sasmita/internal/context"
 	"github.com/amaldevice/sasmita/internal/domain"
+	"github.com/amaldevice/sasmita/internal/genui"
 	"github.com/amaldevice/sasmita/internal/model"
 	"github.com/amaldevice/sasmita/internal/tools"
 )
@@ -53,6 +54,7 @@ type CheckpointStore interface {
 type Config struct {
 	Provider    model.ModelProvider
 	Tools       *tools.Registry
+	GenUI       *genui.Store
 	MaxTurns    int
 	Checkpoints CheckpointStore // Eino ADK checkpoint bytes
 	States      CheckpointStore // app-owned pause state, under its own key prefix

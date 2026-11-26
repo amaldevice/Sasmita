@@ -6,11 +6,16 @@ package desktop
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"time"
 
 	"github.com/amaldevice/sasmita/internal/appsvc"
 	"github.com/amaldevice/sasmita/internal/domain"
 	"github.com/amaldevice/sasmita/internal/onboarding"
+	"github.com/amaldevice/sasmita/internal/usage"
 )
 
 type ConversationDTO struct {
@@ -45,12 +50,58 @@ type SearchResultDTO struct {
 	Snippet        string `json:"snippet"`
 }
 
+// UsageDTO is the per-answer figure behind the hover popover. CostEstimated
+// and TokenEstimated tell the UI never to present these as provider-reported.
+type UsageDTO struct {
+	ProviderID       string  `json:"providerId"`
+	ModelID          string  `json:"modelId"`
+	InputTokens      int64   `json:"inputTokens"`
+	OutputTokens     int64   `json:"outputTokens"`
+	CacheReadTokens  int64   `json:"cacheReadTokens"`
+	CacheWriteTokens int64   `json:"cacheWriteTokens"`
+	UncachedTokens   int64   `json:"uncachedTokens"`
+	TokenEstimated   bool    `json:"tokenEstimated"`
+	HitRate          float64 `json:"hitRate"`
+	CostUSD          float64 `json:"costUsd"`
+	CostEstimated    bool    `json:"costEstimated"`
+	DurationMs       int64   `json:"durationMs"`
+}
+
 type MessageDTO struct {
-	ID             string    `json:"id"`
-	ConversationID string    `json:"conversationId"`
-	Role           string    `json:"role"`
-	Text           string    `json:"text"`
-	CreatedAt      time.Time `json:"createdAt"`
+	ID             string            `json:"id"`
+	ConversationID string            `json:"conversationId"`
+	Role           string            `json:"role"`
+	Text           string            `json:"text"`
+	Blocks         []json.RawMessage `json:"blocks,omitempty"`
+	CreatedAt      time.Time         `json:"createdAt"`
+	RunID          string            `json:"runId,omitempty"`
+	Usage          *UsageDTO         `json:"usage,omitempty"`
+}
+
+// UsageRowDTO is one per-model or per-day line in Settings › Diagnostics.
+type UsageRowDTO struct {
+	Key             string  `json:"key"`
+	ProviderID      string  `json:"providerId,omitempty"`
+	Requests        int64   `json:"requests"`
+	InputTokens     int64   `json:"inputTokens"`
+	OutputTokens    int64   `json:"outputTokens"`
+	CacheReadTokens int64   `json:"cacheReadTokens"`
+	HitRate         float64 `json:"hitRate"`
+	CostUSD         float64 `json:"costUsd"`
+	CostEstimated   bool    `json:"costEstimated"`
+}
+
+// UsageDropDTO is the only hit-rate warning the UI is allowed to show.
+type UsageDropDTO struct {
+	Day  string  `json:"day"`
+	From float64 `json:"from"`
+	To   float64 `json:"to"`
+}
+
+type UsageReportDTO struct {
+	Models []UsageRowDTO `json:"models"`
+	Days   []UsageRowDTO `json:"days"`
+	Drop   *UsageDropDTO `json:"drop,omitempty"`
 }
 
 type ConversationDetailDTO struct {
@@ -72,6 +123,14 @@ type RunHandleDTO struct {
 	ConversationID string
 	Events         <-chan domain.RunEvent
 	Abort          func()
+}
+
+// UIDataDTO is the bounded result of a host data fetch. Large UI datasets stay
+// in artifacts and never enter the model prompt (TAD §12A.11).
+type UIDataDTO struct {
+	Ref       string          `json:"ref"`
+	Rows      json.RawMessage `json:"rows"`
+	Truncated bool            `json:"truncated"`
 }
 
 type RunSnapshotDTO struct {
@@ -125,6 +184,8 @@ type Bindings interface {
 	GetRunSnapshot(ctx context.Context, runID string) (RunSnapshotDTO, error)
 	ListPendingApprovals(ctx context.Context, conversationID string) ([]ApprovalDTO, error)
 	ResolveApproval(ctx context.Context, approvalID, decision, arguments string) error
+	GetUIData(ctx context.Context, ref string, limit int) (UIDataDTO, error)
+	SaveUIState(ctx context.Context, runID, blockID string, patch json.RawMessage) error
 	AddProviderProfile(ctx context.Context, req AddProviderProfileRequestDTO) (ProviderProfileDTO, error)
 	ListProviderProfiles(ctx context.Context) ([]ProviderProfileDTO, error)
 	UpdateProviderProfile(ctx context.Context, req UpdateProviderProfileRequestDTO) (ProviderProfileDTO, error)
@@ -133,8 +194,10 @@ type Bindings interface {
 	TestConnection(ctx context.Context, profileID string) (ConnectionResultDTO, error)
 	ListExamplePrompts(ctx context.Context) []ExamplePromptDTO
 	DetectLocalEndpoints(ctx context.Context) ([]LocalEndpointDTO, error)
+	GetUsageReport(ctx context.Context) (UsageReportDTO, error)
 	ListModes(ctx context.Context) []ModeDTO
 	EstimateSwitch(ctx context.Context, req SwitchEstimateRequestDTO) (SwitchEstimateDTO, error)
+	CompactConversation(ctx context.Context, conversationID string) (CompactionDTO, error)
 }
 
 // Service adapts the application service to the typed bindings. It is shared
@@ -143,7 +206,12 @@ type Service struct {
 	svc        *appsvc.Service
 	providers  *appsvc.ProviderService
 	localProbe onboarding.Probe
+	uiDataDir  string
 }
+
+// SetUIDataDir configures the read-only artifact directory used by the bounded
+// UI data API. It does not change any existing binding signature.
+func (s *Service) SetUIDataDir(dir string) { s.uiDataDir = dir }
 
 var _ Bindings = (*Service)(nil)
 
@@ -196,9 +264,16 @@ func (s *Service) GetConversation(ctx context.Context, conversationID string) (C
 	}
 	messages := make([]MessageDTO, 0, len(detail.Messages))
 	for _, m := range detail.Messages {
+		var blocks []json.RawMessage
+		for _, part := range m.Content {
+			if part.Type == "ui_block" && len(part.Raw) > 0 {
+				blocks = append(blocks, append(json.RawMessage(nil), part.Raw...))
+			}
+		}
 		messages = append(messages, MessageDTO{
 			ID: m.ID, ConversationID: m.ConversationID, Role: string(m.Role),
-			Text: m.Text(), CreatedAt: m.CreatedAt,
+			Text: m.Text(), Blocks: blocks, CreatedAt: m.CreatedAt, RunID: m.RunID,
+			Usage: usageDTO(m.Usage),
 		})
 	}
 	return ConversationDetailDTO{Conversation: conversationDTO(detail.Conversation), Messages: messages}, nil
@@ -324,6 +399,76 @@ func (s *Service) ListPendingApprovals(ctx context.Context, conversationID strin
 	return out, nil
 }
 
+const (
+	maxUIDataRows  = 2000
+	maxUIDataBytes = 5 << 20
+)
+
+var uiArtifactRef = regexp.MustCompile(`^artifact://([A-Za-z0-9_-]{1,128})$`)
+
+// GetUIData resolves an opaque artifact reference to a bounded slice of rows.
+// The ref never becomes a filesystem path supplied by the model: only a safe
+// id is joined to the configured directory, and both file size and row count
+// are capped.
+func (s *Service) GetUIData(_ context.Context, ref string, limit int) (UIDataDTO, error) {
+	m := uiArtifactRef.FindStringSubmatch(ref)
+	if m == nil || s.uiDataDir == "" {
+		return UIDataDTO{}, domain.ErrInvalidArgument
+	}
+	path := filepath.Join(s.uiDataDir, m[1]+".json")
+	info, err := os.Stat(path)
+	if err != nil || info.Size() > maxUIDataBytes {
+		return UIDataDTO{}, domain.ErrNotFound
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return UIDataDTO{}, err
+	}
+	var rows []json.RawMessage
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return UIDataDTO{}, fmt.Errorf("invalid UI data: %w", err)
+	}
+	if limit <= 0 || limit > maxUIDataRows {
+		limit = maxUIDataRows
+	}
+	truncated := len(rows) > limit
+	if truncated {
+		rows = rows[:limit]
+	}
+	encoded, err := json.Marshal(rows)
+	if err != nil {
+		return UIDataDTO{}, err
+	}
+	return UIDataDTO{Ref: ref, Rows: encoded, Truncated: truncated}, nil
+}
+
+func (s *Service) SaveUIState(ctx context.Context, runID, blockID string, patch json.RawMessage) error {
+	return s.svc.SaveUIState(ctx, runID, blockID, patch)
+}
+
+// GetUsageReport exposes the Diagnostics aggregation; the hit-rate warning is
+// carried here and is not part of any chat read model.
+func (s *Service) GetUsageReport(ctx context.Context) (UsageReportDTO, error) {
+	report, err := s.svc.GetUsageReport(ctx)
+	if err != nil {
+		return UsageReportDTO{}, err
+	}
+	out := UsageReportDTO{
+		Models: make([]UsageRowDTO, 0, len(report.Models)),
+		Days:   make([]UsageRowDTO, 0, len(report.Days)),
+	}
+	for _, row := range report.Models {
+		out.Models = append(out.Models, usageRowDTO(row))
+	}
+	for _, row := range report.Days {
+		out.Days = append(out.Days, usageRowDTO(row))
+	}
+	if report.Drop != nil {
+		out.Drop = &UsageDropDTO{Day: report.Drop.Day, From: report.Drop.From, To: report.Drop.To}
+	}
+	return out, nil
+}
+
 func (s *Service) ResolveApproval(ctx context.Context, approvalID, decision, arguments string) error {
 	var raw json.RawMessage
 	if arguments != "" {
@@ -338,6 +483,29 @@ func approvalDTO(a domain.Approval) ApprovalDTO {
 		Status: a.Status, Action: a.Action, Resource: a.Resource, Impact: a.Impact,
 		Message: a.Message, ArgsHash: a.ArgsHash, PolicyHash: a.PolicyHash,
 		CreatedAt: a.CreatedAt.UTC().Format(time.RFC3339Nano),
+	}
+}
+
+func usageRowDTO(row usage.Row) UsageRowDTO {
+	return UsageRowDTO{
+		Key: row.Key, ProviderID: row.ProviderID, Requests: row.Requests,
+		InputTokens: row.InputTokens, OutputTokens: row.OutputTokens,
+		CacheReadTokens: row.CacheReadTokens, HitRate: row.HitRate,
+		CostUSD: row.CostUSD, CostEstimated: row.CostEstimated,
+	}
+}
+
+func usageDTO(u *usage.AnswerUsage) *UsageDTO {
+	if u == nil {
+		return nil
+	}
+	return &UsageDTO{
+		ProviderID: u.ProviderID, ModelID: u.ModelID,
+		InputTokens: u.InputTokens, OutputTokens: u.OutputTokens,
+		CacheReadTokens: u.CacheReadTokens, CacheWriteTokens: u.CacheWriteTokens,
+		UncachedTokens: u.UncachedTokens, TokenEstimated: u.TokenEstimated,
+		HitRate: u.HitRate, CostUSD: u.CostUSD,
+		CostEstimated: u.CostEstimated, DurationMs: u.DurationMs,
 	}
 }
 

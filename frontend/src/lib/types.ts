@@ -1,3 +1,5 @@
+import type { UsageData } from './usage';
+
 export type Role = 'system' | 'user' | 'assistant';
 
 export type ShellView = 'chat' | 'search' | 'projects' | 'artifacts' | 'settings';
@@ -11,12 +13,57 @@ export interface Conversation {
   updatedAt: string;
 }
 
+/** Tier 1 UI block (GLOSSARY): declarative spec rendered by Sasmita components. */
+export interface UIComponent {
+  id: string;
+  type: 'chart' | 'table' | 'mermaid' | 'kpi' | 'math' | 'slider' | 'tabs' | 'toggle';
+  label?: string;
+  bind?: string;
+  dataRef?: string;
+  options?: string[];
+  min?: number;
+  max?: number;
+  step?: number;
+  source?: string;
+  values?: Record<string, unknown>[];
+  series?: number;
+  rows?: number;
+  columns?: number;
+}
+
+export interface UIBlockSpec {
+  schemaVersion: string;
+  blockId: string;
+  kind?: string;
+  title?: string;
+  summary: string;
+  layout?: { mode?: string; columns?: number };
+  state?: Record<string, unknown>;
+  data?: Record<string, { source?: string; encoding?: string; sha256?: string }>;
+  components: UIComponent[];
+}
+
+export interface UIBlock {
+  blockId: string;
+  spec: UIBlockSpec | null;
+  reason: string;
+}
+
+export interface UIData {
+  ref: string;
+  rows: Record<string, unknown>[];
+  truncated: boolean;
+}
+
 export interface Message {
   id: string;
   conversationId: string;
   role: Role;
   text: string;
+  blocks?: UIBlock[];
   createdAt: string;
+  /** Attached when the answer's run recorded usage; absent otherwise. */
+  usage?: UsageData;
 }
 
 export interface ConversationDetail {
