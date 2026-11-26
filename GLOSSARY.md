@@ -18,5 +18,8 @@ _Avoid_: widget, GenUI component
 **Sandboxed artifact** (Tier 2): Kode HTML/JS buatan model yang dijalankan terisolasi dari aplikasi, tanpa akses ke data atau kemampuan desktop.
 _Avoid_: preview, app, canvas
 
+**Artifact runtime**: Kumpulan library berversi tetap yang boleh dipakai sandboxed artifact. Setiap artifact mencatat versi runtime-nya.
+_Avoid_: CDN, dependencies
+
 **Compaction**: Penggantian bagian lama canonical history di active context dengan ringkasan terstruktur, dipicu saat mendekati batas budget.
 _Avoid_: truncation, sliding window
