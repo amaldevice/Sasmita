@@ -91,6 +91,7 @@ export interface StartRunRequest {
   text: string;
   modelRef: string;
   modeId: string;
+  providerId?: string;
 }
 
 // Mirrors domain.RunEvent in internal/domain/events.go. Tags are fixed by TAD §14.2.

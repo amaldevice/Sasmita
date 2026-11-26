@@ -37,6 +37,9 @@ type Request struct {
 	ScopeRoots     []string
 	ModelRef       string
 	History        []domain.Message
+	// Provider selects the adapter for this run. Nil keeps the engine's
+	// configured adapter (profile-based shells resolve one adapter per run).
+	Provider model.ModelProvider
 }
 
 type Result struct {

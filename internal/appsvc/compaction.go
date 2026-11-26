@@ -7,6 +7,7 @@ import (
 
 	ctxlayout "github.com/amaldevice/sasmita/internal/context"
 	"github.com/amaldevice/sasmita/internal/domain"
+	"github.com/amaldevice/sasmita/internal/model"
 	"github.com/amaldevice/sasmita/internal/modes"
 )
 
@@ -42,7 +43,7 @@ func (s *Service) latestCompaction(ctx context.Context, conversationID string) (
 
 // activeContext rebuilds the derived view from canonical history, applying the
 // last compaction first. Later messages stay in append order after the tail.
-func (s *Service) activeContext(ctx context.Context, conversationID, modeID string) (canonical, view []domain.Message, err error) {
+func (s *Service) activeContext(ctx context.Context, conversationID, modeID string, kind domain.ProviderKind) (canonical, view []domain.Message, err error) {
 	canonical, err = s.store.ListMessages(ctx, conversationID, 0)
 	if err != nil {
 		return nil, nil, err
@@ -58,7 +59,7 @@ func (s *Service) activeContext(ctx context.Context, conversationID, modeID stri
 	if err != nil {
 		return nil, nil, err
 	}
-	return canonical, modes.ActiveHistory(canonical, mode, s.providerKind), nil
+	return canonical, modes.ActiveHistory(canonical, mode, kind), nil
 }
 
 // systemMessages are the Mode instructions that precede canonical history in
@@ -71,12 +72,13 @@ func (s *Service) systemMessages(modeID string) []domain.Message {
 	return []domain.Message{{Role: domain.RoleSystem, Content: domain.TextContent(mode.Instructions)}}
 }
 
-func (s *Service) compact(ctx context.Context, conversationID, modelRef, runID, modeID string) (*domain.Compaction, error) {
-	canonical, _, err := s.activeContext(ctx, conversationID, modeID)
+func (s *Service) compact(ctx context.Context, conversationID, modelRef, runID, modeID string, provider model.ModelProvider, kind domain.ProviderKind) (*domain.Compaction, error) {
+	canonical, _, err := s.activeContext(ctx, conversationID, modeID, kind)
 	if err != nil {
 		return nil, err
 	}
 	compactor := s.compactor
+	compactor.Provider = provider
 	compactor.SystemMessages = s.systemMessages(modeID)
 	record, _, err := compactor.Compact(ctx, conversationID, modelRef, runID, canonical)
 	if err != nil {
@@ -90,11 +92,11 @@ func (s *Service) compact(ctx context.Context, conversationID, modelRef, runID, 
 	return &record, nil
 }
 
-func (s *Service) maybeCompact(ctx context.Context, stream *eventStream, run *domain.Run) {
-	if !s.budgetReached(ctx, run) {
+func (s *Service) maybeCompact(ctx context.Context, stream *eventStream, run *domain.Run, provider model.ModelProvider, kind domain.ProviderKind) {
+	if !s.budgetReached(ctx, run, kind) {
 		return
 	}
-	record, err := s.compact(ctx, run.ConversationID, run.ModelRef, run.ID, run.ModeID)
+	record, err := s.compact(ctx, run.ConversationID, run.ModelRef, run.ID, run.ModeID, provider, kind)
 	if errors.Is(err, ctxlayout.ErrNothingToCompact) {
 		return
 	}
@@ -116,11 +118,11 @@ func (s *Service) maybeCompact(ctx context.Context, stream *eventStream, run *do
 
 // budgetReached estimates the active context after the assistant turn was
 // persisted. A zero budget leaves automatic compaction disabled.
-func (s *Service) budgetReached(ctx context.Context, run *domain.Run) bool {
+func (s *Service) budgetReached(ctx context.Context, run *domain.Run, kind domain.ProviderKind) bool {
 	if s.compactor.InputBudgetTokens <= 0 {
 		return false
 	}
-	_, view, err := s.activeContext(ctx, run.ConversationID, run.ModeID)
+	_, view, err := s.activeContext(ctx, run.ConversationID, run.ModeID, kind)
 	if err != nil {
 		return false
 	}
@@ -146,7 +148,11 @@ func (s *Service) CompactConversation(ctx context.Context, conversationID string
 	if modelRef == "" {
 		modelRef = s.cfg.DefaultModel
 	}
-	record, err := s.compact(ctx, conversationID, modelRef, last.ID, conv.ActiveModeID)
+	provider, kind, err := s.providerForRun(ctx, last.ProviderID)
+	if err != nil {
+		return nil, err
+	}
+	record, err := s.compact(ctx, conversationID, modelRef, last.ID, conv.ActiveModeID, provider, kind)
 	if err != nil {
 		return nil, err
 	}

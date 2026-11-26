@@ -87,6 +87,7 @@ export interface StartRunRequestDTO {
   text: string;
   modelRef: string;
   modeId: string;
+  providerId?: string;
 }
 
 // ---- Services ----

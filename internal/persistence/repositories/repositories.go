@@ -180,9 +180,9 @@ func (s *Store) ListMessages(ctx context.Context, conversationID string, limit i
 
 func (s *Store) CreateRun(ctx context.Context, r *domain.Run) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO runs(id, conversation_id, status, model_ref, harness_id, started_at, finished_at, original_run_id)
-		 VALUES(?,?,?,?,?,?,NULL,?)`,
-		r.ID, r.ConversationID, string(r.Status), r.ModelRef, r.ModeID, stamp(r.StartedAt), nullableID(r.OriginalRunID))
+		`INSERT INTO runs(id, conversation_id, status, model_ref, harness_id, provider_id, started_at, finished_at, original_run_id)
+		 VALUES(?,?,?,?,?,?,?,NULL,?)`,
+		r.ID, r.ConversationID, string(r.Status), r.ModelRef, r.ModeID, r.ProviderID, stamp(r.StartedAt), nullableID(r.OriginalRunID))
 	return err
 }
 
@@ -234,9 +234,9 @@ func (s *Store) GetRun(ctx context.Context, id string) (*domain.Run, error) {
 	var finished sql.NullString
 	var original sql.NullString
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, conversation_id, status, model_ref, harness_id, started_at, finished_at, original_run_id
+		`SELECT id, conversation_id, status, model_ref, harness_id, provider_id, started_at, finished_at, original_run_id
 		 FROM runs WHERE id = ?`, id,
-	).Scan(&r.ID, &r.ConversationID, &status, &r.ModelRef, &r.ModeID, &started, &finished, &original)
+	).Scan(&r.ID, &r.ConversationID, &status, &r.ModelRef, &r.ModeID, &r.ProviderID, &started, &finished, &original)
 	if err == sql.ErrNoRows {
 		return nil, domain.ErrNotFound
 	}
@@ -330,9 +330,9 @@ func (s *Store) StartRunTx(ctx context.Context, run *domain.Run, msg *domain.Mes
 		return err
 	}
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO runs(id, conversation_id, status, model_ref, harness_id, started_at, finished_at, original_run_id)
-		 VALUES(?,?,?,?,?,?,NULL,?)`,
-		run.ID, run.ConversationID, string(run.Status), run.ModelRef, run.ModeID, stamp(run.StartedAt), nullableID(run.OriginalRunID),
+		`INSERT INTO runs(id, conversation_id, status, model_ref, harness_id, provider_id, started_at, finished_at, original_run_id)
+		 VALUES(?,?,?,?,?,?,?,NULL,?)`,
+		run.ID, run.ConversationID, string(run.Status), run.ModelRef, run.ModeID, run.ProviderID, stamp(run.StartedAt), nullableID(run.OriginalRunID),
 	); err != nil {
 		tx.Rollback()
 		return err
@@ -355,7 +355,7 @@ func (s *Store) StartRunTx(ctx context.Context, run *domain.Run, msg *domain.Mes
 
 func (s *Store) ListRuns(ctx context.Context, conversationID string) ([]domain.Run, error) {
 	return s.queryRuns(ctx,
-		`SELECT id, conversation_id, status, model_ref, harness_id, started_at, finished_at, original_run_id
+		`SELECT id, conversation_id, status, model_ref, harness_id, provider_id, started_at, finished_at, original_run_id
 		 FROM runs WHERE conversation_id = ? ORDER BY rowid ASC`, conversationID)
 }
 
@@ -370,7 +370,7 @@ func (s *Store) ListActiveRuns(ctx context.Context) ([]domain.Run, error) {
 		placeholders[i] = "?"
 	}
 	return s.queryRuns(ctx,
-		`SELECT id, conversation_id, status, model_ref, harness_id, started_at, finished_at, original_run_id
+		`SELECT id, conversation_id, status, model_ref, harness_id, provider_id, started_at, finished_at, original_run_id
 		 FROM runs WHERE status IN (`+strings.Join(placeholders, ",")+`) ORDER BY rowid ASC`, args...)
 }
 
@@ -385,7 +385,7 @@ func (s *Store) queryRuns(ctx context.Context, query string, args ...any) ([]dom
 		var r domain.Run
 		var status, started string
 		var finished, original sql.NullString
-		if err := rows.Scan(&r.ID, &r.ConversationID, &status, &r.ModelRef, &r.ModeID, &started, &finished, &original); err != nil {
+		if err := rows.Scan(&r.ID, &r.ConversationID, &status, &r.ModelRef, &r.ModeID, &r.ProviderID, &started, &finished, &original); err != nil {
 			return nil, err
 		}
 		r.Status, r.StartedAt = domain.RunStatus(status), parseStamp(started)
@@ -410,9 +410,9 @@ func (s *Store) StartRetryTx(ctx context.Context, run *domain.Run, touchedAt tim
 	}
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO runs(id, conversation_id, status, model_ref, harness_id, started_at, finished_at, original_run_id)
-		 VALUES(?,?,?,?,?,?,NULL,?)`,
-		run.ID, run.ConversationID, string(run.Status), run.ModelRef, run.ModeID, stamp(run.StartedAt), nullableID(run.OriginalRunID),
+		`INSERT INTO runs(id, conversation_id, status, model_ref, harness_id, provider_id, started_at, finished_at, original_run_id)
+		 VALUES(?,?,?,?,?,?,?,NULL,?)`,
+		run.ID, run.ConversationID, string(run.Status), run.ModelRef, run.ModeID, run.ProviderID, stamp(run.StartedAt), nullableID(run.OriginalRunID),
 	); err != nil {
 		return err
 	}

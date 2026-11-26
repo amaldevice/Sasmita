@@ -10,7 +10,7 @@
   import Composer from './lib/Composer.svelte';
   import Connections from './lib/Connections.svelte';
   import Diagnostics from './lib/Diagnostics.svelte';
-  import { createConnectionIPC, type ModelInfo } from './lib/connections';
+  import { createConnectionIPC, type ModelInfo, type ProviderProfile } from './lib/connections';
   import EmptyState from './lib/EmptyState.svelte';
   import InterruptedRun from './lib/InterruptedRun.svelte';
   import Icon from './lib/Icon.svelte';
@@ -82,15 +82,18 @@
   let showDiagnostics = $state(false);
   let modes = $state<Mode[]>([]);
   let models = $state<ModelInfo[]>([]);
+  let profiles = $state<ProviderProfile[]>([]);
   let artifacts = $state<ArtifactRecord[]>([]);
   let modeId = $state('chat');
   let modelId = $state('');
+  let providerId = $state('');
   // Reading layout is view-local: Chat opens one column, Baca two columns below.
   let format = $state<AnswerFormat>(DEFAULT_FORMATS.chat);
   let panelArtifact = $state<ArtifactRecord | null>(null);
   let panelState = $state<'side' | 'fullscreen'>('side');
   // Injected once at mount; not reactive state (the shell never swaps it).
   let modeIPC: ModeIPC | null = null;
+  let connectionIPC: ReturnType<typeof createConnectionIPC> | null = null;
 
   let readingView = $derived(readingMode(view));
   let spotArtifact = $derived.by(() => {
@@ -114,7 +117,8 @@
     modeIPC = createModeIPC(ipc);
     const onboarding = createOnboardingIPC();
     const connections = createConnectionIPC();
-    const [recent, projectList, prompts, modeList, profiles] = await Promise.all([
+    connectionIPC = connections;
+    const [recent, projectList, prompts, modeList, profilesFromOnboarding] = await Promise.all([
       ipc.listRecentConversations('', 50),
       ipc.listProjects(),
       onboarding.listExamplePrompts(),
@@ -123,8 +127,10 @@
     ]);
     examplePrompts = prompts;
     modes = modeList;
-    if (profiles.length > 0) {
-      models = await connections.listModels(profiles[0].id);
+    profiles = profilesFromOnboarding;
+    providerId = profiles[0]?.id ?? '';
+    if (providerId) {
+      models = await connections.listModels(providerId);
       modelId = models[0]?.id ?? 'gpt-test';
     }
     showOnboarding = shouldShowOnboarding();
@@ -283,6 +289,15 @@
     else modelId = value;
   }
 
+  // A provider switch changes the adapter for the next run, not just the model.
+  async function selectProfile(id: string) {
+    providerId = id;
+    models = [];
+    if (!id || !connectionIPC) return;
+    models = await connectionIPC.listModels(id);
+    modelId = models[0]?.id ?? '';
+  }
+
   async function send(text: string) {
     if (!ipc || !detail || run.streaming) return;
     const userMessage = {
@@ -295,7 +310,7 @@
     detail.messages = [...detail.messages, userMessage];
     run.begin();
     const handle = await ipc.startRun(
-      { conversationId: selectedId, text, modelRef: modelId || 'gpt-test', modeId: modeId },
+      { conversationId: selectedId, text, modelRef: modelId || 'gpt-test', modeId, providerId },
       applyEvent,
     );
     run.setRunId(handle.runId);
@@ -398,6 +413,17 @@
           <button class="text-button" data-testid="move-button" onclick={() => { moving = !moving; renaming = false; }}>
             {i18n.t('move')}
           </button>
+          <select
+            class="provider-select"
+            data-testid="provider-select"
+            aria-label={i18n.t('provider')}
+            value={providerId}
+            onchange={(event) => void selectProfile(event.currentTarget.value)}
+          >
+            {#each profiles as profile (profile.id)}
+              <option value={profile.id}>{profile.displayName}</option>
+            {/each}
+          </select>
           <button
             class="icon-button"
             data-testid="toggle-theme"
@@ -678,6 +704,7 @@
   .text-button, .icon-button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border-radius: 6px; color: var(--mute); font-size: 13px; }
   .icon-button { padding: 7px; }
   .icon-button.lang { font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; }
+  .provider-select { max-width: 140px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--mute); font-size: 12px; }
   .text-button:hover, .icon-button:hover { background: var(--raise); color: var(--text); }
   .connections-button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); }
   .connections-button:hover { background: var(--raise); }

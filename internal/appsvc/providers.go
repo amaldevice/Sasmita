@@ -123,6 +123,17 @@ func (s *ProviderService) DeleteProviderProfile(ctx context.Context, id string) 
 	return s.cfg.Secrets.Delete(ctx, p.SecretRef)
 }
 
+// AdapterFor resolves a profile to a live adapter: base URL from the profile,
+// credential from the secret store at request time. It is the resolver passed
+// to appsvc.Service so a StartRun can choose its adapter per run.
+func (s *ProviderService) AdapterFor(ctx context.Context, profileID string) (model.ModelProvider, error) {
+	p, err := s.store.GetProviderProfile(ctx, profileID)
+	if err != nil {
+		return nil, err
+	}
+	return s.adapterFor(ctx, p)
+}
+
 func (s *ProviderService) adapterFor(ctx context.Context, p *domain.ProviderProfile) (model.ModelProvider, error) {
 	key, err := s.cfg.Secrets.Get(ctx, p.SecretRef)
 	if err != nil {

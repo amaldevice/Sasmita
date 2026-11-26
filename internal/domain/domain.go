@@ -23,12 +23,12 @@ type Project struct {
 // Conversation owns the canonical history: an append-only sequence of messages
 // and the runs started from it.
 type Conversation struct {
-	ID              string
-	ProjectID       string
-	Title           string
+	ID           string
+	ProjectID    string
+	Title        string
 	ActiveModeID string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // ConversationDetail is the reload payload used by GetConversation after a restart.
@@ -106,7 +106,8 @@ type Run struct {
 	ConversationID string
 	Status         RunStatus
 	ModelRef       string
-	ModeID      string
+	ModeID         string
+	ProviderID     string
 	StartedAt      time.Time
 	FinishedAt     *time.Time
 	OriginalRunID  string
@@ -130,7 +131,8 @@ type StartRunRequest struct {
 	ConversationID string `json:"conversationId"`
 	Text           string `json:"text"`
 	ModelRef       string `json:"modelRef"`
-	ModeID      string `json:"modeId"`
+	ModeID         string `json:"modeId"`
+	ProviderID     string `json:"providerId,omitempty"`
 }
 
 var (

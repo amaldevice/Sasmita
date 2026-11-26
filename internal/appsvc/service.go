@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -26,9 +27,13 @@ import (
 )
 
 const (
-	defaultModel   = "gpt-4o-mini"
-	defaultMode = "chat"
+	defaultModel = "gpt-4o-mini"
+	defaultMode  = "chat"
 )
+
+// ErrProviderUnavailable means a run named a provider profile but the service
+// has no resolver (a chat-only shell). It fails before any message is stored.
+var ErrProviderUnavailable = errors.New("provider profile resolution is not configured")
 
 type Config struct {
 	Provider         model.ModelProvider
@@ -76,8 +81,16 @@ type Service struct {
 	runtime      *runtime.Manager
 	approvals    *runtime.ApprovalCoordinator
 	providerKind domain.ProviderKind
+	providerFor  func(context.Context, string) (model.ModelProvider, error)
 	genui        *genui.Store
 	discovery    *discovery.Service
+}
+
+// SetProviderResolver wires profile-based adapter resolution. The shell that
+// owns provider profiles calls this once during setup; chat-only shells keep
+// their single configured adapter.
+func (s *Service) SetProviderResolver(resolve func(context.Context, string) (model.ModelProvider, error)) {
+	s.providerFor = resolve
 }
 
 func New(store *repositories.Store, cfg Config) *Service {
@@ -171,12 +184,12 @@ func (s *Service) CreateConversation(ctx context.Context, projectID, title, mode
 	}
 	now := s.cfg.Now()
 	conv := &domain.Conversation{
-		ID:              s.cfg.NewID(),
-		ProjectID:       projectID,
-		Title:           title,
+		ID:           s.cfg.NewID(),
+		ProjectID:    projectID,
+		Title:        title,
 		ActiveModeID: modeID,
-		CreatedAt:       now,
-		UpdatedAt:       now,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 	if err := s.store.CreateConversation(ctx, conv); err != nil {
 		return nil, err

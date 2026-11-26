@@ -229,6 +229,9 @@ func setup(shell *shellService) error {
 	providerService := appsvc.NewProviderService(store, appsvc.ProviderServiceConfig{
 		Secrets: secrets.NewKeychain(),
 	})
+	// A run carrying a profile ID resolves its base URL and keychain secret
+	// from this service instead of using the shell's default adapter.
+	app.SetProviderResolver(providerService.AdapterFor)
 	bindings := desktop.NewServiceWithProviders(app, providerService)
 	bindings.SetUIDataDir(artifactsDir)
 	shell.bindings = bindings

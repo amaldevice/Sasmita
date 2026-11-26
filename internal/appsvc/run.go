@@ -10,8 +10,8 @@ import (
 	"github.com/amaldevice/sasmita/internal/agent"
 	"github.com/amaldevice/sasmita/internal/domain"
 	"github.com/amaldevice/sasmita/internal/genui"
-	"github.com/amaldevice/sasmita/internal/modes"
 	"github.com/amaldevice/sasmita/internal/model"
+	"github.com/amaldevice/sasmita/internal/modes"
 )
 
 // eventStream is a bounded channel for UI delivery. Coalescable events are
@@ -101,13 +101,38 @@ func (s *Service) ResumeRun(ctx context.Context, originalRunID string) (*RunHand
 		ConversationID: original.ConversationID,
 		Text:           text,
 		ModelRef:       original.ModelRef,
-		ModeID:      original.ModeID,
+		ModeID:         original.ModeID,
+		ProviderID:     original.ProviderID,
 	}, original.ID)
+}
+
+// providerForRun resolves the adapter and wire kind for one run. An empty
+// profile ID keeps the shell's single configured adapter.
+func (s *Service) providerForRun(ctx context.Context, providerID string) (model.ModelProvider, domain.ProviderKind, error) {
+	if providerID == "" {
+		return s.cfg.Provider, s.providerKind, nil
+	}
+	if s.providerFor == nil {
+		return nil, "", ErrProviderUnavailable
+	}
+	provider, err := s.providerFor(ctx, providerID)
+	if err != nil {
+		return nil, "", err
+	}
+	var kind domain.ProviderKind
+	if aware, ok := provider.(model.ProviderKindAware); ok {
+		kind = domain.ProviderKind(aware.ProviderKind())
+	}
+	return provider, kind, nil
 }
 
 func (s *Service) start(ctx context.Context, req domain.StartRunRequest, originalRunID string) (*RunHandle, error) {
 	if strings.TrimSpace(req.Text) == "" {
 		return nil, domain.ErrInvalidArgument
+	}
+	provider, kind, err := s.providerForRun(ctx, req.ProviderID)
+	if err != nil {
+		return nil, err
 	}
 	if _, err := s.store.GetConversation(ctx, req.ConversationID); err != nil {
 		return nil, err
@@ -129,7 +154,8 @@ func (s *Service) start(ctx context.Context, req domain.StartRunRequest, origina
 		ConversationID: req.ConversationID,
 		Status:         domain.RunQueued,
 		ModelRef:       modelRef,
-		ModeID:      modeID,
+		ModeID:         modeID,
+		ProviderID:     req.ProviderID,
 		StartedAt:      now,
 		OriginalRunID:  originalRunID,
 	}
@@ -174,7 +200,7 @@ func (s *Service) start(ctx context.Context, req domain.StartRunRequest, origina
 	s.runtime.Register(run.ID, cancel, func(eventType string, payload json.RawMessage, important bool) error {
 		return s.emitRaw(context.WithoutCancel(ctx), stream, run.ID, eventType, payload, important)
 	})
-	go s.execute(runCtx, run, stream, cancel)
+	go s.execute(runCtx, run, stream, cancel, provider, kind)
 	return handle, nil
 }
 
@@ -275,7 +301,7 @@ func (s *Service) emitTerminal(ctx context.Context, stream *eventStream, runID, 
 	stream.send(ev, true, true)
 }
 
-func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStream, cancel context.CancelFunc) {
+func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStream, cancel context.CancelFunc, provider model.ModelProvider, kind domain.ProviderKind) {
 	defer cancel()
 	defer s.runtime.Finish(run.ID)
 	persistCtx := context.WithoutCancel(ctx)
@@ -297,7 +323,7 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 	// Active context is a derived view of canonical history: Mode instructions,
 	// provider filtering and compaction never rewrite stored messages. The ADK
 	// agent builds each request from this view plus appended tool pairs.
-	_, view, err := s.activeContext(persistCtx, run.ConversationID, run.ModeID)
+	_, view, err := s.activeContext(persistCtx, run.ConversationID, run.ModeID, kind)
 	if err != nil {
 		s.fail(ctx, persistCtx, run, stream, err)
 		return
@@ -315,7 +341,6 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 	if run.OriginalRunID != "" {
 		checkpointID = run.OriginalRunID
 	}
-
 
 	var full, pending strings.Builder
 	var contentBlocks []json.RawMessage
@@ -335,7 +360,7 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 	result, streamErr := s.cfg.Agent.Run(ctx, agent.Request{
 		ConversationID: run.ConversationID, RunID: run.ID, CheckpointID: checkpointID,
 		Mode: run.ModeID, ProjectID: conv.ProjectID, ScopeRoots: roots,
-		ModelRef: run.ModelRef, History: view,
+		ModelRef: run.ModelRef, History: view, Provider: provider,
 	}, func(sig domain.AgentSignal) {
 		switch sig.Kind {
 		case domain.AgentTextDelta:
@@ -393,7 +418,7 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 
 	// Compaction is the only allowed prefix reset; it happens at a safe
 	// boundary after the assistant turn is persisted (ADR-0001, TAD §11.5).
-	s.maybeCompact(persistCtx, stream, run)
+	s.maybeCompact(persistCtx, stream, run, provider, kind)
 
 	now := s.cfg.Now()
 	_ = s.store.UpdateRunStatus(persistCtx, run.ID, domain.RunCompleted, &now)
