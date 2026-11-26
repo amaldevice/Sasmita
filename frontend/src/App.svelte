@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Activity from './lib/Activity.svelte';
+  import ArtifactLibrary from './lib/ArtifactLibrary.svelte';
+  import { installArtifactNavigationGuard } from './lib/ArtifactNavigation';
+  import { createArtifactIPC, fixtureArtifactData, type ArtifactRecord } from './lib/artifacts';
   import Composer from './lib/Composer.svelte';
   import Connections from './lib/Connections.svelte';
   import { createConnectionIPC, type ModelInfo } from './lib/connections';
@@ -53,6 +56,7 @@
   let examplePrompts = $state<ExamplePrompt[]>([]);
   let modes = $state<Mode[]>([]);
   let models = $state<ModelInfo[]>([]);
+  let artifacts = $state<ArtifactRecord[]>([]);
   let modeId = $state('chat');
   let modelId = $state('');
   // Injected once at mount; not reactive state (the shell never swaps it).
@@ -68,6 +72,8 @@
 
   onMount(async () => {
     ipc = createIPC();
+    installArtifactNavigationGuard();
+    artifacts = await createArtifactIPC().listArtifacts();
     modeIPC = createModeIPC(ipc);
     const onboarding = createOnboardingIPC();
     const connections = createConnectionIPC();
@@ -380,7 +386,14 @@
     {:else if view === 'artifacts'}
       <section class="view" data-testid="artifacts-view">
         <h1>{i18n.t('artifacts')}</h1>
-        <p class="empty-note">{i18n.t('noArtifacts')}</p>
+        <ArtifactLibrary
+          {artifacts}
+          data={fixtureArtifactData}
+          pendingSource={new URLSearchParams(location.search).get('stream') === '1'
+            ? 'export default () => <div className="pending">streaming…</div>;'
+            : ''}
+          onSuggestPrompt={(prompt) => void send(prompt)}
+        />
       </section>
     {:else}
       <section class="view" data-testid="settings-view">
