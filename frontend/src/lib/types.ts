@@ -115,6 +115,15 @@ export interface RunHandle {
   runId: string;
 }
 
+/** Derived prefix reset record; canonical history is untouched. */
+export interface CompactionRecord {
+  id: string;
+  conversationId: string;
+  runId: string;
+  summary: string;
+  estimatedTokens: number;
+}
+
 /** One visible step in the activity timeline (ticket #22). */
 export interface ToolStep {
   callId: string;

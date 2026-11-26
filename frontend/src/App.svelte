@@ -81,6 +81,7 @@
   let examplePrompts = $state<ExamplePrompt[]>([]);
   let hoveredAnswer = $state('');
   let showDiagnostics = $state(false);
+  let compactionSummary = $state('');
   let modes = $state<Mode[]>([]);
   let models = $state<ModelInfo[]>([]);
   let profiles = $state<ProviderProfile[]>([]);
@@ -340,6 +341,12 @@
     const runId = run.runId || runs.find((record) => record.conversationId === selectedId)?.runId;
     if (!runId) return;
     void ipc.saveUIState(runId, blockId, patch).catch(() => {});
+  }
+
+  async function compactNow() {
+    if (!ipc || !selectedId) return;
+    const record = await ipc.compactConversation(selectedId);
+    compactionSummary = record.summary;
   }
 
   async function search() {
@@ -652,6 +659,17 @@
           >{usageSettings.alwaysShow ? i18n.t('enabled') : i18n.t('disabled')}</button>
         </div>
         <div class="setting-row">
+          <span>{i18n.t('compact')}</span>
+          <button
+            class="connections-button"
+            data-testid="compact-button"
+            onclick={() => void compactNow()}
+          >{i18n.t('compact')}</button>
+        </div>
+        {#if compactionSummary}
+          <p class="compaction-note" data-testid="compaction-status">{compactionSummary}</p>
+        {/if}
+        <div class="setting-row">
           <span>{i18n.t('diagnostics')}</span>
           <button
             class="connections-button"
@@ -745,6 +763,7 @@
   .result-title { color: var(--text); font-weight: 600; }
   .result-snippet { color: var(--mute); font-size: 13px; }
   .empty-note { color: var(--mute); }
+  .compaction-note { margin: 8px 0 16px; color: var(--mute); font-size: 13px; }
   .project-row, .setting-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--line); }
   .project-row .num { color: var(--mute); font-size: 13px; }
   .segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }

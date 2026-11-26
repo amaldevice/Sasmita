@@ -16,6 +16,7 @@ import (
 	"github.com/amaldevice/sasmita/internal/artifacts"
 	"github.com/amaldevice/sasmita/internal/desktop"
 	"github.com/amaldevice/sasmita/internal/domain"
+	"github.com/amaldevice/sasmita/internal/model"
 	"github.com/amaldevice/sasmita/internal/model/adapters/openai"
 	"github.com/amaldevice/sasmita/internal/persistence/migrations"
 	"github.com/amaldevice/sasmita/internal/persistence/repositories"
@@ -120,6 +121,12 @@ func (s *shellService) ListProjects(ctx context.Context) ([]desktop.ProjectDTO, 
 	return s.bindings.ListProjects(ctx)
 }
 
+// CompactConversation is the user-requested compaction command; canonical
+// history is never rewritten (GLOSSARY "compaction").
+func (s *shellService) CompactConversation(ctx context.Context, conversationID string) (desktop.CompactionDTO, error) {
+	return s.bindings.CompactConversation(ctx, conversationID)
+}
+
 // PickAttachments opens the native file picker and returns absolute paths.
 // The browser never sees file handles; tools receive only these explicit roots.
 func (s *shellService) PickAttachments(ctx context.Context) ([]string, error) {
@@ -175,6 +182,22 @@ func (s *shellService) ResumeRun(ctx context.Context, runID string, events *mygo
 	return streamRun(ctx, handle, events)
 }
 
+// The shipped model's input context. A zero budget would leave ShouldCompact
+// inert no matter how well the compactor is tested in isolation (#24 review).
+const inputBudgetTokens = 128_000
+
+func appConfig(provider model.ModelProvider, modelRef, artifactsDir string, artifactService *artifacts.Service) appsvc.Config {
+	return appsvc.Config{
+		Provider:            provider,
+		DefaultModel:        modelRef,
+		EnableTools:         true,
+		ArtifactsDir:        artifactsDir,
+		Artifacts:           artifactService,
+		InputBudgetTokens:   inputBudgetTokens,
+		CompactionThreshold: 0.75,
+	}
+}
+
 func setup(shell *shellService) error {
 	dbPath := os.Getenv("SASMITA_DB_PATH")
 	if dbPath == "" {
@@ -223,13 +246,7 @@ func setup(shell *shellService) error {
 		ProviderID: "openai",
 	}
 	artifactsDir := filepath.Join(os.TempDir(), "sasmita-artifacts")
-	app := appsvc.New(store, appsvc.Config{
-		Provider:     adapter,
-		DefaultModel: modelRef,
-		EnableTools:  true,
-		ArtifactsDir: artifactsDir,
-		Artifacts:    artifactService,
-	})
+	app := appsvc.New(store, appConfig(adapter, modelRef, artifactsDir, artifactService))
 	// Runs left active by a previous process cannot still be executing here.
 	if _, err := app.RecoverStaleRuns(context.Background()); err != nil {
 		return err

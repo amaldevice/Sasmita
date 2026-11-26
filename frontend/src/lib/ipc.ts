@@ -13,6 +13,7 @@ import { parseUIBlock } from './uiblocks';
 import type {
   Approval,
   ApprovalDecision,
+  CompactionRecord,
   Conversation,
   ConversationDetail,
   Project,
@@ -49,6 +50,8 @@ export interface IPC {
   resumeRun(runId: string, onEvent: (event: RunEvent) => void): Promise<RunHandle>;
   getRunSnapshot(runId: string): Promise<RunSnapshot>;
   listPendingApprovals(conversationId: string): Promise<Approval[]>;
+  /** User-requested compaction; returns the stored structured summary. */
+  compactConversation(conversationId: string): Promise<CompactionRecord>;
   /** args is the exact bound payload; an empty or changed value must be rejected. */
   resolveApproval(approvalId: string, decision: ApprovalDecision, args: string): Promise<void>;
   /** Bounded, read-only fetch of a large dataset referenced by a UI block. */
@@ -64,6 +67,9 @@ const listPendingApprovalsBinding = bind<[string], Approval[]>(
 );
 const resolveApprovalBinding = bind<[string, string, string], void>(
   'shellService.ResolveApproval', (approvalID: string, decision: string, args: string) => [approvalID, decision, args],
+);
+const compactConversationBinding = bind<[string], CompactionRecord>(
+  'shellService.CompactConversation', (conversationID: string) => [conversationID],
 );
 
 /** Uses the TypeScript client generated from the Go bindings by `mygo generate`. */
@@ -147,6 +153,10 @@ export class MyGoIPC implements IPC {
   async resolveApproval(approvalId: string, decision: ApprovalDecision, args: string): Promise<void> {
     if (!args) throw new Error('approval arguments are missing');
     await resolveApprovalBinding(approvalId, decision, args);
+  }
+
+  compactConversation(conversationId: string): Promise<CompactionRecord> {
+    return compactConversationBinding(conversationId);
   }
 
   async getUIData(ref: string, limit: number): Promise<UIData> {
@@ -316,6 +326,29 @@ export class FakeIPC implements IPC {
 
   async pickAttachments(): Promise<string[]> {
     return ['note.txt'];
+  }
+
+  async compactConversation(conversationId: string): Promise<CompactionRecord> {
+    const detail = this.state.details[conversationId];
+    if (!detail) throw new Error(`conversation ${conversationId} not found`);
+    const record: CompactionRecord = {
+      id: `compact-${Date.now()}`, conversationId, runId: '',
+      summary: 'ringkasan percakapan', estimatedTokens: detail.messages.length * 16,
+    };
+    const latest = [...this.state.runs].reverse().find((run) => run.conversationId === conversationId);
+    if (latest) {
+      record.runId = latest.runId;
+      const snapshot = this.state.snapshots[latest.runId];
+      if (snapshot) {
+        snapshot.events.push({
+          runId: latest.runId, seq: latestSeq(snapshot.events) + 1,
+          type: 'context.compacted', timestamp: new Date().toISOString(),
+          payload: { version: 1, compaction: record },
+        });
+      }
+    }
+    this.save();
+    return record;
   }
 
   async getRunSnapshot(runId: string): Promise<RunSnapshot> {

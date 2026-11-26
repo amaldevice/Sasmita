@@ -95,6 +95,7 @@ export interface StartRunRequestDTO {
 
 export const shellService = {
   cancelRun: bind<[string], void>("shellService.CancelRun", (runID: string) => [runID]),
+  compactConversation: bind<[string], { id: string; conversationId: string; runId: string; summary: string; estimatedTokens: number }>("shellService.CompactConversation", (conversationID: string) => [conversationID]),
   createConversation: bind<[string, string, string], ConversationDTO>("shellService.CreateConversation", (projectID: string, title: string, modeID: string) => [projectID, title, modeID]),
   getConversation: bind<[string], ConversationDetailDTO>("shellService.GetConversation", (conversationID: string) => [conversationID]),
   getRunSnapshot: bind<[string], RunSnapshotDTO>("shellService.GetRunSnapshot", (runID: string) => [runID]),
