@@ -10,6 +10,7 @@ import (
 	"github.com/amaldevice/sasmita/internal/appsvc"
 	"github.com/amaldevice/sasmita/internal/domain"
 	"github.com/amaldevice/sasmita/internal/onboarding"
+	"github.com/amaldevice/sasmita/internal/usage"
 )
 
 type ConversationDTO struct {
@@ -44,12 +45,57 @@ type SearchResultDTO struct {
 	Snippet        string `json:"snippet"`
 }
 
+// UsageDTO is the per-answer figure behind the hover popover. CostEstimated
+// and TokenEstimated tell the UI never to present these as provider-reported.
+type UsageDTO struct {
+	ProviderID       string  `json:"providerId"`
+	ModelID          string  `json:"modelId"`
+	InputTokens      int64   `json:"inputTokens"`
+	OutputTokens     int64   `json:"outputTokens"`
+	CacheReadTokens  int64   `json:"cacheReadTokens"`
+	CacheWriteTokens int64   `json:"cacheWriteTokens"`
+	UncachedTokens   int64   `json:"uncachedTokens"`
+	TokenEstimated   bool    `json:"tokenEstimated"`
+	HitRate          float64 `json:"hitRate"`
+	CostUSD          float64 `json:"costUsd"`
+	CostEstimated    bool    `json:"costEstimated"`
+	DurationMs       int64   `json:"durationMs"`
+}
+
 type MessageDTO struct {
 	ID             string    `json:"id"`
 	ConversationID string    `json:"conversationId"`
 	Role           string    `json:"role"`
 	Text           string    `json:"text"`
 	CreatedAt      time.Time `json:"createdAt"`
+	RunID          string    `json:"runId,omitempty"`
+	Usage          *UsageDTO `json:"usage,omitempty"`
+}
+
+// UsageRowDTO is one per-model or per-day line in Settings › Diagnostics.
+type UsageRowDTO struct {
+	Key             string  `json:"key"`
+	ProviderID      string  `json:"providerId,omitempty"`
+	Requests        int64   `json:"requests"`
+	InputTokens     int64   `json:"inputTokens"`
+	OutputTokens    int64   `json:"outputTokens"`
+	CacheReadTokens int64   `json:"cacheReadTokens"`
+	HitRate         float64 `json:"hitRate"`
+	CostUSD         float64 `json:"costUsd"`
+	CostEstimated   bool    `json:"costEstimated"`
+}
+
+// UsageDropDTO is the only hit-rate warning the UI is allowed to show.
+type UsageDropDTO struct {
+	Day  string  `json:"day"`
+	From float64 `json:"from"`
+	To   float64 `json:"to"`
+}
+
+type UsageReportDTO struct {
+	Models []UsageRowDTO `json:"models"`
+	Days   []UsageRowDTO `json:"days"`
+	Drop   *UsageDropDTO `json:"drop,omitempty"`
 }
 
 type ConversationDetailDTO struct {
@@ -113,6 +159,7 @@ type Bindings interface {
 	TestConnection(ctx context.Context, profileID string) (ConnectionResultDTO, error)
 	ListExamplePrompts(ctx context.Context) []ExamplePromptDTO
 	DetectLocalEndpoints(ctx context.Context) ([]LocalEndpointDTO, error)
+	GetUsageReport(ctx context.Context) (UsageReportDTO, error)
 	ListModes(ctx context.Context) []ModeDTO
 	EstimateSwitch(ctx context.Context, req SwitchEstimateRequestDTO) (SwitchEstimateDTO, error)
 	CompactConversation(ctx context.Context, conversationID string) (CompactionDTO, error)
@@ -179,7 +226,8 @@ func (s *Service) GetConversation(ctx context.Context, conversationID string) (C
 	for _, m := range detail.Messages {
 		messages = append(messages, MessageDTO{
 			ID: m.ID, ConversationID: m.ConversationID, Role: string(m.Role),
-			Text: m.Text(), CreatedAt: m.CreatedAt,
+			Text: m.Text(), CreatedAt: m.CreatedAt, RunID: m.RunID,
+			Usage: usageDTO(m.Usage),
 		})
 	}
 	return ConversationDetailDTO{Conversation: conversationDTO(detail.Conversation), Messages: messages}, nil
@@ -291,6 +339,52 @@ func (s *Service) GetRunSnapshot(ctx context.Context, runID string) (RunSnapshot
 		Answer: snapshot.Answer,
 		Events: snapshot.Events,
 	}, nil
+}
+
+// GetUsageReport exposes the Diagnostics aggregation; the hit-rate warning is
+// carried here and is not part of any chat read model.
+func (s *Service) GetUsageReport(ctx context.Context) (UsageReportDTO, error) {
+	report, err := s.svc.GetUsageReport(ctx)
+	if err != nil {
+		return UsageReportDTO{}, err
+	}
+	out := UsageReportDTO{
+		Models: make([]UsageRowDTO, 0, len(report.Models)),
+		Days:   make([]UsageRowDTO, 0, len(report.Days)),
+	}
+	for _, row := range report.Models {
+		out.Models = append(out.Models, usageRowDTO(row))
+	}
+	for _, row := range report.Days {
+		out.Days = append(out.Days, usageRowDTO(row))
+	}
+	if report.Drop != nil {
+		out.Drop = &UsageDropDTO{Day: report.Drop.Day, From: report.Drop.From, To: report.Drop.To}
+	}
+	return out, nil
+}
+
+func usageRowDTO(row usage.Row) UsageRowDTO {
+	return UsageRowDTO{
+		Key: row.Key, ProviderID: row.ProviderID, Requests: row.Requests,
+		InputTokens: row.InputTokens, OutputTokens: row.OutputTokens,
+		CacheReadTokens: row.CacheReadTokens, HitRate: row.HitRate,
+		CostUSD: row.CostUSD, CostEstimated: row.CostEstimated,
+	}
+}
+
+func usageDTO(u *usage.AnswerUsage) *UsageDTO {
+	if u == nil {
+		return nil
+	}
+	return &UsageDTO{
+		ProviderID: u.ProviderID, ModelID: u.ModelID,
+		InputTokens: u.InputTokens, OutputTokens: u.OutputTokens,
+		CacheReadTokens: u.CacheReadTokens, CacheWriteTokens: u.CacheWriteTokens,
+		UncachedTokens: u.UncachedTokens, TokenEstimated: u.TokenEstimated,
+		HitRate: u.HitRate, CostUSD: u.CostUSD,
+		CostEstimated: u.CostEstimated, DurationMs: u.DurationMs,
+	}
 }
 
 func conversationDTO(c domain.Conversation) ConversationDTO {

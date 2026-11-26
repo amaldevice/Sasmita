@@ -82,9 +82,9 @@ func TestMigrateFromEmptyAndIdempotent(t *testing.T) {
 	}
 }
 
-// A fresh database must apply all four ticket migrations exactly once, in
-// filename order, and end at version 4 (TAD §13.4).
-func TestMigrateAppliesAllFourFilesExactlyOnce(t *testing.T) {
+// A fresh database must apply every ticket migration exactly once, in
+// filename order, and end at the highest known version (TAD §13.4).
+func TestMigrateAppliesAllFilesExactlyOnce(t *testing.T) {
 	db, err := sqlite.Open(filepath.Join(t.TempDir(), "sasmita.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -110,16 +110,16 @@ func TestMigrateAppliesAllFourFilesExactlyOnce(t *testing.T) {
 		}
 		applied = append(applied, name)
 	}
-	want := []string{"001_init.sql", "002_init.sql", "003_init.sql", "004_init.sql"}
+	want := []string{"001_init.sql", "002_init.sql", "003_init.sql", "004_init.sql", "007_init.sql"}
 	if fmt.Sprint(applied) != fmt.Sprint(want) {
 		t.Fatalf("applied migrations = %v, want %v", applied, want)
 	}
-	if migrations.Latest != 4 {
-		t.Fatalf("migrations.Latest = %d, want 4", migrations.Latest)
+	if migrations.Latest != 7 {
+		t.Fatalf("migrations.Latest = %d, want 7", migrations.Latest)
 	}
 	v, err := migrations.Version(db)
-	if err != nil || v != 4 {
-		t.Fatalf("schema version = %d (err %v), want 4", v, err)
+	if err != nil || v != 7 {
+		t.Fatalf("schema version = %d (err %v), want 7", v, err)
 	}
 	for _, table := range []string{"provider_profiles", "conversation_fts"} {
 		var name string

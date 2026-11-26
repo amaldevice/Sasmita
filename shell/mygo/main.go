@@ -106,6 +106,11 @@ func (s *shellService) ListProjects(ctx context.Context) ([]desktop.ProjectDTO, 
 	return s.bindings.ListProjects(ctx)
 }
 
+// Diagnostics usage report. Hit-rate warnings live only in this command.
+func (s *shellService) GetUsageReport(ctx context.Context) (desktop.UsageReportDTO, error) {
+	return s.bindings.GetUsageReport(ctx)
+}
+
 // streamRun forwards RunEvents through a typed MyGo channel. The method stays
 // pending until a terminal event, so the channel is never closed early.
 func streamRun(ctx context.Context, handle desktop.RunHandleDTO, events *mygo.Channel[domain.RunEvent]) (string, error) {

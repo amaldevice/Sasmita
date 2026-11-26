@@ -18,6 +18,7 @@ import (
 	"github.com/amaldevice/sasmita/internal/persistence/repositories"
 	"github.com/amaldevice/sasmita/internal/runtime"
 	"github.com/amaldevice/sasmita/internal/tools"
+	"github.com/amaldevice/sasmita/internal/usage"
 )
 
 const (
@@ -173,6 +174,30 @@ func (s *Service) GetConversation(ctx context.Context, id string) (*domain.Conve
 	messages, err := s.store.ListMessages(ctx, id, 0)
 	if err != nil {
 		return nil, err
+	}
+	// Attach each answer's usage from the run that produced it. This read path
+	// never returns a hit-rate warning: that belongs to Diagnostics only.
+	for i := range messages {
+		m := &messages[i]
+		if m.Role != domain.RoleAssistant || m.RunID == "" {
+			continue
+		}
+		usages, err := s.store.ListUsage(ctx, m.RunID)
+		if err != nil || len(usages) == 0 {
+			continue
+		}
+		u := usages[len(usages)-1]
+		view := usage.ViewOf(usage.Record{
+			ProviderID: u.ProviderID, ModelID: u.ModelID,
+			InputTokens: u.InputTokens, OutputTokens: u.OutputTokens,
+			CacheReadTokens: u.CacheReadTokens, CacheWriteTokens: u.CacheWriteTokens,
+			UncachedTokens: u.UncachedTokens, Estimated: u.Estimated,
+			CostEstimate: u.CostEstimate,
+		})
+		if run, err := s.store.GetRun(ctx, m.RunID); err == nil && run.FinishedAt != nil {
+			view.DurationMs = run.FinishedAt.Sub(run.StartedAt).Milliseconds()
+		}
+		m.Usage = &view
 	}
 	return &domain.ConversationDetail{Conversation: *conv, Messages: messages}, nil
 }
