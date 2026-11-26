@@ -3,6 +3,7 @@
 package domain
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -52,6 +53,10 @@ type SearchResult struct {
 type ContentPart struct {
 	Type string `json:"type"`
 	Text string `json:"text,omitempty"`
+	// Raw is the exact provider content block, preserved for byte-identical
+	// replay in a later active context. Text mirrors its readable text so
+	// Text() and FTS keep working on canonical history.
+	Raw json.RawMessage `json:"raw,omitempty"`
 }
 
 // TextContent builds the only content shape needed by the v1 walking skeleton.
