@@ -42,7 +42,7 @@
     };
     const bridge = new ArtifactBridge(options);
     bridge.start();
-    // Seam-2 harness only: the fake shell exposes the decisions for assertions.
+    // Seam-2 replay only: the fake shell exposes the decisions for assertions.
     (window as unknown as { __artifactBridgeLog: typeof bridgeLog }).__artifactBridgeLog = bridgeLog;
     return () => bridge.stop();
   });

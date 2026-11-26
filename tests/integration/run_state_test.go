@@ -154,11 +154,11 @@ func TestSeam1RestartRecoveryAndResume(t *testing.T) {
 	_, store := stateTestService(t, path, answerProvider{answer: "unused"})
 
 	if err := store.CreateRun(ctx, &domain.Run{ID: "stale", ConversationID: "c1", Status: domain.RunRunning,
-		ModelRef: "gated", HarnessID: "chat", StartedAt: time.Now()}); err != nil {
+		ModelRef: "gated", ModeID: "chat", StartedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.CreateRun(ctx, &domain.Run{ID: "done", ConversationID: "c1", Status: domain.RunCompleted,
-		ModelRef: "gated", HarnessID: "chat", StartedAt: time.Now()}); err != nil {
+		ModelRef: "gated", ModeID: "chat", StartedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.AddMessage(ctx, &domain.Message{ID: "u1", ConversationID: "c1", Role: domain.RoleUser,

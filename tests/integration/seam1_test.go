@@ -143,7 +143,6 @@ func TestSeam1StreamingChatGoldenPrefixAndRestart(t *testing.T) {
 		Provider:     &orderCheckingProvider{inner: adapter, store: store, t: t},
 		DefaultModel: "gpt-test",
 		CoalesceSize: 8,
-		ContextLimit: 50,
 		NewID:        newIDGenerator(),
 	}
 	svc := appsvc.New(store, cfg)
@@ -162,7 +161,7 @@ func TestSeam1StreamingChatGoldenPrefixAndRestart(t *testing.T) {
 		t.Fatalf("ListConversations = %+v, next=%q, err=%v", listed, next, err)
 	}
 
-	h1, err := svc.StartRun(ctx, domain.StartRunRequest{ConversationID: conv.ID, Text: "first question", ModelRef: "gpt-test", HarnessID: "chat"})
+	h1, err := svc.StartRun(ctx, domain.StartRunRequest{ConversationID: conv.ID, Text: "first question", ModelRef: "gpt-test", ModeID: "chat"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +207,7 @@ func TestSeam1StreamingChatGoldenPrefixAndRestart(t *testing.T) {
 		t.Fatalf("run after turn 1 = %+v (err %v)", run, err)
 	}
 
-	h2, err := svc.StartRun(ctx, domain.StartRunRequest{ConversationID: conv.ID, Text: "second question", HarnessID: "chat"})
+	h2, err := svc.StartRun(ctx, domain.StartRunRequest{ConversationID: conv.ID, Text: "second question", ModeID: "chat"})
 	if err != nil {
 		t.Fatal(err)
 	}

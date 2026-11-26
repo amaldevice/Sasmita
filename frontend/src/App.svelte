@@ -10,7 +10,7 @@
   import Composer from './lib/Composer.svelte';
   import Connections from './lib/Connections.svelte';
   import Diagnostics from './lib/Diagnostics.svelte';
-  import { createConnectionIPC, type ModelInfo } from './lib/connections';
+  import { createConnectionIPC, type ModelInfo, type ProviderProfile } from './lib/connections';
   import EmptyState from './lib/EmptyState.svelte';
   import InterruptedRun from './lib/InterruptedRun.svelte';
   import Icon from './lib/Icon.svelte';
@@ -33,6 +33,7 @@
   import { usageSettings } from './lib/usage-settings.svelte';
   import Usage from './lib/Usage.svelte';
   import type {
+    Approval,
     ApprovalDecision,
     Conversation,
     ConversationDetail,
@@ -51,6 +52,7 @@
   let selectedId = $state('');
   let detail = $state<ConversationDetail | null>(null);
   let draft = $state('');
+  let attachments = $state<string[]>([]);
   let run = $state(new ChatRun());
   let runs = $state<RunRecord[]>([]);
   let badges = $state<Record<string, SidebarBadge>>({});
@@ -79,17 +81,21 @@
   let examplePrompts = $state<ExamplePrompt[]>([]);
   let hoveredAnswer = $state('');
   let showDiagnostics = $state(false);
+  let compactionSummary = $state('');
   let modes = $state<Mode[]>([]);
   let models = $state<ModelInfo[]>([]);
+  let profiles = $state<ProviderProfile[]>([]);
   let artifacts = $state<ArtifactRecord[]>([]);
   let modeId = $state('chat');
   let modelId = $state('');
+  let providerId = $state('');
   // Reading layout is view-local: Chat opens one column, Baca two columns below.
   let format = $state<AnswerFormat>(DEFAULT_FORMATS.chat);
   let panelArtifact = $state<ArtifactRecord | null>(null);
   let panelState = $state<'side' | 'fullscreen'>('side');
   // Injected once at mount; not reactive state (the shell never swaps it).
   let modeIPC: ModeIPC | null = null;
+  let connectionIPC: ReturnType<typeof createConnectionIPC> | null = null;
 
   let readingView = $derived(readingMode(view));
   let spotArtifact = $derived.by(() => {
@@ -113,7 +119,8 @@
     modeIPC = createModeIPC(ipc);
     const onboarding = createOnboardingIPC();
     const connections = createConnectionIPC();
-    const [recent, projectList, prompts, modeList, profiles] = await Promise.all([
+    connectionIPC = connections;
+    const [recent, projectList, prompts, modeList, profilesFromOnboarding] = await Promise.all([
       ipc.listRecentConversations('', 50),
       ipc.listProjects(),
       onboarding.listExamplePrompts(),
@@ -122,8 +129,10 @@
     ]);
     examplePrompts = prompts;
     modes = modeList;
-    if (profiles.length > 0) {
-      models = await connections.listModels(profiles[0].id);
+    profiles = profilesFromOnboarding;
+    providerId = profiles[0]?.id ?? '';
+    if (providerId) {
+      models = await connections.listModels(providerId);
       modelId = models[0]?.id ?? 'gpt-test';
     }
     showOnboarding = shouldShowOnboarding();
@@ -179,10 +188,10 @@
     badges = next;
   }
 
-  async function resolveApproval(approvalId: string, decision: ApprovalDecision) {
+  async function resolveApproval(approval: Approval, decision: ApprovalDecision) {
     if (!ipc) return;
     run.clearApproval();
-    await ipc.resolveApproval(approvalId, decision);
+    await ipc.resolveApproval(approval.approvalId, decision, approval.arguments ?? '');
   }
 
   // On terminal, reload canonical history from the typed binding so the
@@ -282,6 +291,25 @@
     else modelId = value;
   }
 
+  async function attachFiles() {
+    if (!ipc) return;
+    const picked = await ipc.pickAttachments();
+    attachments = [...new Set([...attachments, ...picked])];
+  }
+
+  function removeAttachment(path: string) {
+    attachments = attachments.filter((item) => item !== path);
+  }
+
+  // A provider switch changes the adapter for the next run, not just the model.
+  async function selectProfile(id: string) {
+    providerId = id;
+    models = [];
+    if (!id || !connectionIPC) return;
+    models = await connectionIPC.listModels(id);
+    modelId = models[0]?.id ?? '';
+  }
+
   async function send(text: string) {
     if (!ipc || !detail || run.streaming) return;
     const userMessage = {
@@ -294,9 +322,10 @@
     detail.messages = [...detail.messages, userMessage];
     run.begin();
     const handle = await ipc.startRun(
-      { conversationId: selectedId, text, modelRef: modelId || 'gpt-test', harnessId: modeId },
+      { conversationId: selectedId, text, modelRef: modelId || 'gpt-test', modeId, providerId, attachments },
       applyEvent,
     );
+    attachments = [];
     run.setRunId(handle.runId);
   }
 
@@ -312,6 +341,12 @@
     const runId = run.runId || runs.find((record) => record.conversationId === selectedId)?.runId;
     if (!runId) return;
     void ipc.saveUIState(runId, blockId, patch).catch(() => {});
+  }
+
+  async function compactNow() {
+    if (!ipc || !selectedId) return;
+    const record = await ipc.compactConversation(selectedId);
+    compactionSummary = record.summary;
   }
 
   async function search() {
@@ -397,6 +432,17 @@
           <button class="text-button" data-testid="move-button" onclick={() => { moving = !moving; renaming = false; }}>
             {i18n.t('move')}
           </button>
+          <select
+            class="provider-select"
+            data-testid="provider-select"
+            aria-label={i18n.t('provider')}
+            value={providerId}
+            onchange={(event) => void selectProfile(event.currentTarget.value)}
+          >
+            {#each profiles as profile (profile.id)}
+              <option value={profile.id}>{profile.displayName}</option>
+            {/each}
+          </select>
           <button
             class="icon-button"
             data-testid="toggle-theme"
@@ -439,7 +485,7 @@
 
         {#if run.approval}
           {@const approval = run.approval}
-          <ApprovalCard {approval} onresolve={(decision) => void resolveApproval(approval.approvalId, decision)} />
+          <ApprovalCard {approval} onresolve={(decision) => void resolveApproval(approval, decision)} />
         {/if}
 
         <div class="reading-column" data-testid="reading-column" data-view={readingView} data-format={format}>
@@ -470,6 +516,7 @@
                   onmouseenter={() => (hoveredAnswer = message.id)}
                   onmouseleave={() => (hoveredAnswer = '')}
                 >
+                  <h2 class="answer-title" data-testid="answer-title">{i18n.t('answer')}</h2>
                   <div class="role">Sasmita</div>
                   <p>{message.text}</p>
                   <Usage
@@ -513,6 +560,7 @@
               {/if}
               {#if run.answer}
                 <article class="message streaming" data-testid="streaming-answer">
+                  <h2 class="answer-title" data-testid="answer-title">{i18n.t('answer')}</h2>
                   <div class="role">Sasmita</div>
                   <p>{run.answer}</p>
                   <Usage usage={run.usage} alwaysShow={usageSettings.alwaysShow} />
@@ -537,6 +585,9 @@
         {modelId}
         estimate={estimateSelection}
         onselect={selectChoice}
+        {attachments}
+        onattach={attachFiles}
+        onremoveattachment={removeAttachment}
       />
     {:else if view === 'search'}
       <section class="view" data-testid="search-view">
@@ -610,6 +661,17 @@
           >{usageSettings.alwaysShow ? i18n.t('enabled') : i18n.t('disabled')}</button>
         </div>
         <div class="setting-row">
+          <span>{i18n.t('compact')}</span>
+          <button
+            class="connections-button"
+            data-testid="compact-button"
+            onclick={() => void compactNow()}
+          >{i18n.t('compact')}</button>
+        </div>
+        {#if compactionSummary}
+          <p class="compaction-note" data-testid="compaction-status">{compactionSummary}</p>
+        {/if}
+        <div class="setting-row">
           <span>{i18n.t('diagnostics')}</span>
           <button
             class="connections-button"
@@ -677,6 +739,7 @@
   .text-button, .icon-button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border-radius: 6px; color: var(--mute); font-size: 13px; }
   .icon-button { padding: 7px; }
   .icon-button.lang { font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; }
+  .provider-select { max-width: 140px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--mute); font-size: 12px; }
   .text-button:hover, .icon-button:hover { background: var(--raise); color: var(--text); }
   .connections-button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); }
   .connections-button:hover { background: var(--raise); }
@@ -690,6 +753,8 @@
   .message { position: relative; max-width: 760px; margin: 0 0 20px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
   .message.user { margin-left: auto; background: var(--raise); }
   .message.streaming { border-color: var(--flow); }
+  .answer-title { margin: 0 0 12px; font-size: 30px; font-weight: 700; line-height: 1.2; }
+  .reading-column[data-view='baca'] .answer-title { font-size: 40px; }
   .role { margin-bottom: 6px; color: var(--mute); font-size: 12px; }
   .message p { white-space: pre-wrap; line-height: 1.6; }
   .error { color: var(--attn); }
@@ -702,6 +767,7 @@
   .result-title { color: var(--text); font-weight: 600; }
   .result-snippet { color: var(--mute); font-size: 13px; }
   .empty-note { color: var(--mute); }
+  .compaction-note { margin: 8px 0 16px; color: var(--mute); font-size: 13px; }
   .project-row, .setting-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--line); }
   .project-row .num { color: var(--mute); font-size: 13px; }
   .segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }

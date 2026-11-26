@@ -131,8 +131,10 @@ func (c *ApprovalCoordinator) Authorize(ctx context.Context, req ApprovalRequest
 	return c.wait(ctx, a, decision.Reason)
 }
 
-// Resolve verifies the binding before persisting the decision. Passing the
-// arguments currently on the table makes a changed request fail closed.
+// Resolve verifies the binding before persisting the decision. The caller must
+// send back the exact arguments shown on the card: an empty or changed request
+// cannot be bound, so it fails closed instead of silently inheriting a decision.
+// The policy snapshot is always rechecked as well (TAD §15.8).
 func (c *ApprovalCoordinator) Resolve(ctx context.Context, approvalID, decision string, arguments json.RawMessage) error {
 	if decision != domain.ApprovalAllowOnce && decision != domain.ApprovalAlways && decision != domain.ApprovalDeny {
 		return domain.ErrInvalidDecision
@@ -144,7 +146,10 @@ func (c *ApprovalCoordinator) Resolve(ctx context.Context, approvalID, decision 
 	if a.Status != domain.ApprovalPending {
 		return domain.ErrApprovalResolved
 	}
-	if len(arguments) > 0 && policy.HashArguments(arguments) != a.ArgsHash {
+	if len(arguments) == 0 || policy.HashArguments(arguments) != a.ArgsHash {
+		return domain.ErrApprovalStale
+	}
+	if policy.HashArguments(a.Arguments) != a.ArgsHash {
 		return domain.ErrApprovalStale
 	}
 	snapshot := c.engine.Snapshot()

@@ -1,4 +1,4 @@
-package harness
+package modes
 
 import "github.com/amaldevice/sasmita/internal/domain"
 

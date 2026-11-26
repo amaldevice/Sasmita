@@ -19,12 +19,12 @@ import (
 )
 
 type ConversationDTO struct {
-	ID              string    `json:"id"`
-	ProjectID       string    `json:"projectId"`
-	Title           string    `json:"title"`
-	ActiveHarnessID string    `json:"activeHarnessId"`
-	CreatedAt       time.Time `json:"createdAt"`
-	UpdatedAt       time.Time `json:"updatedAt"`
+	ID           string    `json:"id"`
+	ProjectID    string    `json:"projectId"`
+	Title        string    `json:"title"`
+	ActiveModeID string    `json:"activeModeId"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 type ConversationPageDTO struct {
@@ -110,10 +110,12 @@ type ConversationDetailDTO struct {
 }
 
 type StartRunRequestDTO struct {
-	ConversationID string `json:"conversationId"`
-	Text           string `json:"text"`
-	ModelRef       string `json:"modelRef"`
-	HarnessID      string `json:"harnessId"`
+	ConversationID string   `json:"conversationId"`
+	Text           string   `json:"text"`
+	ModelRef       string   `json:"modelRef"`
+	ModeID         string   `json:"modeId"`
+	ProviderID     string   `json:"providerId,omitempty"`
+	Attachments    []string `json:"attachments,omitempty"`
 }
 
 // RunHandleDTO is a Go-side binding handle. A shell adapter drains Events into
@@ -150,8 +152,9 @@ type RunDTO struct {
 	OriginalRunID  string `json:"originalRunId,omitempty"`
 }
 
-// ApprovalDTO is the inline card's data. Raw arguments stay in SQLite; only
-// plain-language detail crosses IPC.
+// ApprovalDTO is the inline card's data. The exact arguments cross IPC so the
+// UI can echo them on resolve; SQLite remains the source of truth for the hash
+// recheck. Only plain-language detail is shown on the card.
 type ApprovalDTO struct {
 	ApprovalID string `json:"approvalId"`
 	RunID      string `json:"runId"`
@@ -162,6 +165,7 @@ type ApprovalDTO struct {
 	Resource   string `json:"resource"`
 	Impact     string `json:"impact"`
 	Message    string `json:"message"`
+	Arguments  string `json:"arguments,omitempty"`
 	ArgsHash   string `json:"argsHash"`
 	PolicyHash string `json:"policyHash"`
 	CreatedAt  string `json:"createdAt"`
@@ -169,7 +173,7 @@ type ApprovalDTO struct {
 
 // Bindings is the typed IPC surface exposed to the frontend.
 type Bindings interface {
-	CreateConversation(ctx context.Context, projectID, title, harnessID string) (ConversationDTO, error)
+	CreateConversation(ctx context.Context, projectID, title, modeID string) (ConversationDTO, error)
 	ListConversations(ctx context.Context, projectID, cursor string, limit int) (ConversationPageDTO, error)
 	ListRecentConversations(ctx context.Context, cursor string, limit int) (ConversationPageDTO, error)
 	GetConversation(ctx context.Context, conversationID string) (ConversationDetailDTO, error)
@@ -225,8 +229,8 @@ func NewServiceWithProviders(svc *appsvc.Service, providers *appsvc.ProviderServ
 	return &Service{svc: svc, providers: providers}
 }
 
-func (s *Service) CreateConversation(ctx context.Context, projectID, title, harnessID string) (ConversationDTO, error) {
-	conv, err := s.svc.CreateConversation(ctx, projectID, title, harnessID)
+func (s *Service) CreateConversation(ctx context.Context, projectID, title, modeID string) (ConversationDTO, error) {
+	conv, err := s.svc.CreateConversation(ctx, projectID, title, modeID)
 	if err != nil {
 		return ConversationDTO{}, err
 	}
@@ -330,7 +334,9 @@ func (s *Service) StartRun(ctx context.Context, req StartRunRequestDTO) (RunHand
 		ConversationID: req.ConversationID,
 		Text:           req.Text,
 		ModelRef:       req.ModelRef,
-		HarnessID:      req.HarnessID,
+		ModeID:         req.ModeID,
+		ProviderID:     req.ProviderID,
+		Attachments:    req.Attachments,
 	})
 	if err != nil {
 		return RunHandleDTO{}, err
@@ -481,7 +487,8 @@ func approvalDTO(a domain.Approval) ApprovalDTO {
 	return ApprovalDTO{
 		ApprovalID: a.ID, RunID: a.RunID, CallID: a.CallID, ToolID: a.ToolID,
 		Status: a.Status, Action: a.Action, Resource: a.Resource, Impact: a.Impact,
-		Message: a.Message, ArgsHash: a.ArgsHash, PolicyHash: a.PolicyHash,
+		Message: a.Message, Arguments: string(a.Arguments),
+		ArgsHash: a.ArgsHash, PolicyHash: a.PolicyHash,
 		CreatedAt: a.CreatedAt.UTC().Format(time.RFC3339Nano),
 	}
 }
@@ -512,6 +519,6 @@ func usageDTO(u *usage.AnswerUsage) *UsageDTO {
 func conversationDTO(c domain.Conversation) ConversationDTO {
 	return ConversationDTO{
 		ID: c.ID, ProjectID: c.ProjectID, Title: c.Title,
-		ActiveHarnessID: c.ActiveHarnessID, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
+		ActiveModeID: c.ActiveModeID, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 	}
 }

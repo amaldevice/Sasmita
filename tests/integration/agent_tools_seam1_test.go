@@ -128,7 +128,7 @@ func TestSeam1ScriptedToolCallKeepsGoldenPrefix(t *testing.T) {
 
 	svc, store, convID := newToolService(t, srv.URL, t.TempDir(), nil)
 	h, err := svc.StartRun(ctx, domain.StartRunRequest{
-		ConversationID: convID, Text: "compute for me", ModelRef: "gpt-test", HarnessID: "chat",
+		ConversationID: convID, Text: "compute for me", ModelRef: "gpt-test", ModeID: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -221,7 +221,10 @@ func TestSeam1OverCapToolResultBecomesArtifact(t *testing.T) {
 	defer srv.Close()
 
 	svc, store, convID := newToolService(t, srv.URL, artifactsDir, []string{root})
-	h, err := svc.StartRun(ctx, domain.StartRunRequest{ConversationID: convID, Text: "read it", ModelRef: "gpt-test"})
+	h, err := svc.StartRun(ctx, domain.StartRunRequest{
+		ConversationID: convID, Text: "read it", ModelRef: "gpt-test",
+		Attachments: []string{filepath.Join(root, "big.txt")},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

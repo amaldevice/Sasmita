@@ -10,7 +10,7 @@ export interface ConversationDTO {
   id: string;
   projectId: string;
   title: string;
-  activeHarnessId: string;
+  activeModeId: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -86,18 +86,25 @@ export interface StartRunRequestDTO {
   conversationId: string;
   text: string;
   modelRef: string;
-  harnessId: string;
+  modeId: string;
+  providerId?: string;
+  attachments?: string[];
 }
 
 // ---- Services ----
 
 export const shellService = {
   cancelRun: bind<[string], void>("shellService.CancelRun", (runID: string) => [runID]),
-  createConversation: bind<[string, string, string], ConversationDTO>("shellService.CreateConversation", (projectID: string, title: string, harnessID: string) => [projectID, title, harnessID]),
+  compactConversation: bind<[string], { id: string; conversationId: string; runId: string; summary: string; estimatedTokens: number }>("shellService.CompactConversation", (conversationID: string) => [conversationID]),
+  createConversation: bind<[string, string, string], ConversationDTO>("shellService.CreateConversation", (projectID: string, title: string, modeID: string) => [projectID, title, modeID]),
   getConversation: bind<[string], ConversationDetailDTO>("shellService.GetConversation", (conversationID: string) => [conversationID]),
   getRunSnapshot: bind<[string], RunSnapshotDTO>("shellService.GetRunSnapshot", (runID: string) => [runID]),
   getUIData: bind<[string, number], UIDataDTO>("shellService.GetUIData", (ref: string, limit: number) => [ref, limit]),
   saveUIState: bind<[string, string, unknown], void>("shellService.SaveUIState", (runID: string, blockID: string, patch: unknown) => [runID, blockID, patch]),
+  /** One-way: the Go side decides whether the app is frontmost. */
+  notifyApproval: bind<[string, string], void>("shellService.NotifyApproval", (title: string, body: string) => [title, body]),
+  /** Native file picker; returns absolute paths, never browser file handles. */
+  pickAttachments: bind<[], string[]>("shellService.PickAttachments", () => []),
   listConversations: bind<[string, string, number], ConversationPageDTO>("shellService.ListConversations", (projectID: string, cursor: string, limit: number) => [projectID, cursor, limit]),
   listRuns: bind<[string], RunDTO[]>("shellService.ListRuns", (conversationID: string) => [conversationID]),
   listProjects: bind<[], ProjectDTO[]>("shellService.ListProjects", () => []),

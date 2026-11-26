@@ -16,6 +16,7 @@ import (
 	"github.com/amaldevice/sasmita/internal/artifacts"
 	"github.com/amaldevice/sasmita/internal/desktop"
 	"github.com/amaldevice/sasmita/internal/domain"
+	"github.com/amaldevice/sasmita/internal/model"
 	"github.com/amaldevice/sasmita/internal/model/adapters/openai"
 	"github.com/amaldevice/sasmita/internal/persistence/migrations"
 	"github.com/amaldevice/sasmita/internal/persistence/repositories"
@@ -28,10 +29,11 @@ type shellService struct {
 	bindings *desktop.Service
 	app      *appsvc.Service
 	live     liveReporter
+	notifier desktopNotifier
 }
 
-func (s *shellService) CreateConversation(ctx context.Context, projectID, title, harnessID string) (desktop.ConversationDTO, error) {
-	return s.bindings.CreateConversation(ctx, projectID, title, harnessID)
+func (s *shellService) CreateConversation(ctx context.Context, projectID, title, modeID string) (desktop.ConversationDTO, error) {
+	return s.bindings.CreateConversation(ctx, projectID, title, modeID)
 }
 
 func (s *shellService) ListConversations(ctx context.Context, projectID, cursor string, limit int) (desktop.ConversationPageDTO, error) {
@@ -120,6 +122,27 @@ func (s *shellService) ListProjects(ctx context.Context) ([]desktop.ProjectDTO, 
 	return s.bindings.ListProjects(ctx)
 }
 
+// NotifyApproval is the one-way binding used by the renderer's focus-gated
+// hook. The Go side checks frontmost state again, so a stale renderer cannot
+// produce a notification while Sasmita is in the foreground.
+func (s *shellService) NotifyApproval(_ context.Context, title, body string) error {
+	return notifyApproval(s.notifier, title, body)
+}
+
+// CompactConversation is the user-requested compaction command; canonical
+// history is never rewritten (GLOSSARY "compaction").
+func (s *shellService) CompactConversation(ctx context.Context, conversationID string) (desktop.CompactionDTO, error) {
+	return s.bindings.CompactConversation(ctx, conversationID)
+}
+
+// PickAttachments opens the native file picker and returns absolute paths.
+// The browser never sees file handles; tools receive only these explicit roots.
+func (s *shellService) PickAttachments(ctx context.Context) ([]string, error) {
+	return mygo.Dialog.Open(mygo.OpenDialogOptions{
+		Parent: mygo.CallerWindow(ctx), Title: "Attach files", Multiple: true,
+	})
+}
+
 // Diagnostics usage report. Hit-rate warnings live only in this command.
 func (s *shellService) GetUsageReport(ctx context.Context) (desktop.UsageReportDTO, error) {
 	return s.bindings.GetUsageReport(ctx)
@@ -165,6 +188,22 @@ func (s *shellService) ResumeRun(ctx context.Context, runID string, events *mygo
 		return "", err
 	}
 	return streamRun(ctx, handle, events)
+}
+
+// The shipped model's input context. A zero budget would leave ShouldCompact
+// inert no matter how well the compactor is tested in isolation (#24 review).
+const inputBudgetTokens = 128_000
+
+func appConfig(provider model.ModelProvider, modelRef, artifactsDir string, artifactService *artifacts.Service) appsvc.Config {
+	return appsvc.Config{
+		Provider:            provider,
+		DefaultModel:        modelRef,
+		EnableTools:         true,
+		ArtifactsDir:        artifactsDir,
+		Artifacts:           artifactService,
+		InputBudgetTokens:   inputBudgetTokens,
+		CompactionThreshold: 0.75,
+	}
 }
 
 func setup(shell *shellService) error {
@@ -215,13 +254,7 @@ func setup(shell *shellService) error {
 		ProviderID: "openai",
 	}
 	artifactsDir := filepath.Join(os.TempDir(), "sasmita-artifacts")
-	app := appsvc.New(store, appsvc.Config{
-		Provider:     adapter,
-		DefaultModel: modelRef,
-		EnableTools:  true,
-		ArtifactsDir: artifactsDir,
-		Artifacts:    artifactService,
-	})
+	app := appsvc.New(store, appConfig(adapter, modelRef, artifactsDir, artifactService))
 	// Runs left active by a previous process cannot still be executing here.
 	if _, err := app.RecoverStaleRuns(context.Background()); err != nil {
 		return err
@@ -229,6 +262,9 @@ func setup(shell *shellService) error {
 	providerService := appsvc.NewProviderService(store, appsvc.ProviderServiceConfig{
 		Secrets: secrets.NewKeychain(),
 	})
+	// A run carrying a profile ID resolves its base URL and keychain secret
+	// from this service instead of using the shell's default adapter.
+	app.SetProviderResolver(providerService.AdapterFor)
 	bindings := desktop.NewServiceWithProviders(app, providerService)
 	bindings.SetUIDataDir(artifactsDir)
 	shell.bindings = bindings
@@ -245,6 +281,7 @@ func main() {
 			return
 		}
 		win := mygo.NewWindow(mygo.WindowOptions{Title: "Sasmita", URL: "/"})
+		shell.notifier = mygoNotifier{window: win}
 		// MyGo v0.10 treats custom schemes as trusted in the main frame.
 		// NavigateEvent has no frame flag; iframe loads of artifact:// are not
 		// user-initiated, so blocking user-initiated ones keeps inline

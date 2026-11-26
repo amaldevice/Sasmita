@@ -81,9 +81,9 @@ func TestSeam1FindToolsRanksAndCapsResult(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		switch calls.Add(1) {
 		case 1:
-			fmt.Fprint(w, discoverySSE("Mencari. ", "ft-1", "find_tools", `{"query":"query table rows"}`))
+			fmt.Fprint(w, discoverySSE("Mencari. ", "ft-1", "find_tools", `{"query":"load skill chart"}`))
 		case 2:
-			fmt.Fprint(w, discoverySSE("Memanggil. ", "ft-2", "call_tool", `{"name":"query_table","args":{"rows":[{"v":2},{"v":4}],"column":"v","op":"sum"}}`))
+			fmt.Fprint(w, discoverySSE("Memanggil. ", "ft-2", "call_tool", `{"name":"load_skill","args":{"component":"chart"}}`))
 		default:
 			fmt.Fprint(w, anthropicStreamWithBlocks(`[{"type":"text","text":"Selesai."}]`,
 				`{"input_tokens":11,"output_tokens":3,"cache_creation_input_tokens":0,"cache_read_input_tokens":2}`, "Selesai."))
@@ -93,7 +93,7 @@ func TestSeam1FindToolsRanksAndCapsResult(t *testing.T) {
 
 	svc, convID := newDiscoveryService(t, srv.URL)
 	h, err := svc.StartRun(ctx, domain.StartRunRequest{
-		ConversationID: convID, Text: "cari tool tabel", ModelRef: "gpt-test", HarnessID: "chat",
+		ConversationID: convID, Text: "cari tool tabel", ModelRef: "gpt-test", ModeID: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -110,21 +110,21 @@ func TestSeam1FindToolsRanksAndCapsResult(t *testing.T) {
 		switch name {
 		case "find_tools":
 			found = output
-		case "query_table":
+		case "load_skill":
 			called = output
 		}
 	}
 	if found == "" {
 		t.Fatalf("find_tools did not execute: %+v", events)
 	}
-	if !strings.Contains(found, "query_table") || !strings.Contains(found, "inputSchema") {
+	if !strings.Contains(found, "load_skill") || !strings.Contains(found, "inputSchema") {
 		t.Fatalf("find_tools result did not rank the tool with its schema: %s", found)
 	}
 	if len(found) > 8192 {
 		t.Fatalf("find_tools result is %d bytes, want <= 8192", len(found))
 	}
-	if !strings.Contains(called, `"value":6`) {
-		t.Fatalf("call_tool did not execute query_table: %q", called)
+	if !strings.Contains(called, "chart:") {
+		t.Fatalf("call_tool did not execute load_skill: %q", called)
 	}
 
 	mu.Lock()
@@ -163,7 +163,7 @@ func TestSeam1CallToolValidatesTargetSchema(t *testing.T) {
 
 	svc, convID := newDiscoveryService(t, srv.URL)
 	h, err := svc.StartRun(ctx, domain.StartRunRequest{
-		ConversationID: convID, Text: "hitung", ModelRef: "gpt-test", HarnessID: "chat",
+		ConversationID: convID, Text: "hitung", ModelRef: "gpt-test", ModeID: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -205,7 +205,7 @@ func TestSeam1CallToolReturnsSkillContent(t *testing.T) {
 
 	svc, convID := newDiscoveryService(t, srv.URL)
 	h, err := svc.StartRun(ctx, domain.StartRunRequest{
-		ConversationID: convID, Text: "aturan chart", ModelRef: "gpt-test", HarnessID: "chat",
+		ConversationID: convID, Text: "aturan chart", ModelRef: "gpt-test", ModeID: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -247,7 +247,7 @@ func TestSeam1CallToolPolicyUsesRealToolID(t *testing.T) {
 
 	svc, convID := newDiscoveryService(t, srv.URL)
 	h, err := svc.StartRun(ctx, domain.StartRunRequest{
-		ConversationID: convID, Text: "timpa artifact", ModelRef: "gpt-test", HarnessID: "chat",
+		ConversationID: convID, Text: "timpa artifact", ModelRef: "gpt-test", ModeID: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -271,7 +271,7 @@ func TestSeam1CallToolPolicyUsesRealToolID(t *testing.T) {
 	if err != nil || approval.ToolID != "write_artifact" {
 		t.Fatalf("stored approval = %+v (err %v)", approval, err)
 	}
-	if err := svc.ResolveApproval(ctx, approvalID, domain.ApprovalAllowOnce, nil); err != nil {
+	if err := svc.ResolveApproval(ctx, approvalID, domain.ApprovalAllowOnce, approval.Arguments); err != nil {
 		t.Fatal(err)
 	}
 	events := drain(t, h)
@@ -304,9 +304,9 @@ func nativeToolNames(t *testing.T, body []byte) []string {
 	return names
 }
 
-// Seam 1: a tool used through call_tool is promoted to the native tool list
-// only at compaction. The frozen prefix before that point is unchanged.
-func TestSeam1DiscoveredToolPromotedAtCompaction(t *testing.T) {
+// Seam 1: v1 has no discovery-only tools, so compaction must not add native
+// tools to the frozen request. Meta-tools stay native before and after.
+func TestSeam1FrozenToolListUnchangedAtCompaction(t *testing.T) {
 	ctx := context.Background()
 	var calls atomic.Int32
 	var mu sync.Mutex
@@ -325,8 +325,8 @@ func TestSeam1DiscoveredToolPromotedAtCompaction(t *testing.T) {
 		}
 		switch calls.Add(1) {
 		case 1:
-			fmt.Fprint(w, discoverySSE("Menghitung. ", "p-1", "call_tool",
-				`{"name":"query_table","args":{"rows":[{"v":1},{"v":2}],"column":"v","op":"sum"}}`))
+			fmt.Fprint(w, discoverySSE("Membaca. ", "p-1", "call_tool",
+				`{"name":"load_skill","args":{"component":"chart"}}`))
 		case 2:
 			fmt.Fprint(w, anthropicStreamWithBlocks(`[{"type":"text","text":"Jawaban."}]`,
 				`{"input_tokens":12,"output_tokens":2,"cache_read_input_tokens":11,"cache_creation_input_tokens":0}`, "Jawaban."))
@@ -343,7 +343,7 @@ func TestSeam1DiscoveredToolPromotedAtCompaction(t *testing.T) {
 	svc, convID := newDiscoveryService(t, srv.URL, 200)
 	question := strings.Repeat("explain the table ", 20)
 	h, err := svc.StartRun(ctx, domain.StartRunRequest{
-		ConversationID: convID, Text: question, ModelRef: "gpt-test", HarnessID: "chat",
+		ConversationID: convID, Text: question, ModelRef: "gpt-test", ModeID: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -351,7 +351,7 @@ func TestSeam1DiscoveredToolPromotedAtCompaction(t *testing.T) {
 	drain(t, h)
 	// A second user turn gives compaction both an omitted and a kept tail.
 	h2, err := svc.StartRun(ctx, domain.StartRunRequest{
-		ConversationID: convID, Text: question + " again", ModelRef: "gpt-test", HarnessID: "chat",
+		ConversationID: convID, Text: question + " again", ModelRef: "gpt-test", ModeID: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -368,7 +368,7 @@ func TestSeam1DiscoveredToolPromotedAtCompaction(t *testing.T) {
 	}
 
 	h3, err := svc.StartRun(ctx, domain.StartRunRequest{
-		ConversationID: convID, Text: "next question", ModelRef: "gpt-test", HarnessID: "chat",
+		ConversationID: convID, Text: "next question", ModelRef: "gpt-test", ModeID: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -389,20 +389,14 @@ func TestSeam1DiscoveredToolPromotedAtCompaction(t *testing.T) {
 		}
 	}
 	before := nativeToolNames(t, ordinary[0])
-	for _, name := range before {
-		if name == "query_table" {
-			t.Fatal("discovered tool was native before compaction")
-		}
-	}
 	last := nativeToolNames(t, ordinary[len(ordinary)-1])
-	promoted := false
-	for _, name := range last {
-		if name == "query_table" {
-			promoted = true
-		}
+	if len(before) != len(last) {
+		t.Fatalf("compaction changed the frozen tool list: %v -> %v", before, last)
 	}
-	if !promoted {
-		t.Fatalf("query_table not promoted after compaction: %v", last)
+	for i, name := range before {
+		if name != last[i] {
+			t.Fatalf("compaction changed the frozen tool list: %v -> %v", before, last)
+		}
 	}
 	// The meta-tools remain native in both lists.
 	for _, body := range [][]byte{bodies[0], bodies[len(bodies)-1]} {

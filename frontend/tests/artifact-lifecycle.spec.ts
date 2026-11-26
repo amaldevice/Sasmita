@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 /**
  * Seam 2: the artifact lifecycle renders the RenderFlow allocation from the
- * prototype. The harness drives the same actions a browser would (scroll,
+ * prototype. The replay drives the same actions a browser would (scroll,
  * reopen, watchdog callback) and asserts rendered surfaces, never internals.
  */
 async function openLifecycle(page: Page): Promise<void> {

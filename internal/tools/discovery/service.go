@@ -26,8 +26,9 @@ type Service struct {
 	promoted   map[string]map[string]bool
 }
 
-// New registers the meta-tools and the discovery-only tools, then freezes the
-// native definition list that every new conversation starts with.
+// New registers the meta-tools, then freezes the native definition list that
+// every new conversation starts with. v1 has no discovery-only tools: the only
+// candidate, query_table, belongs to the out-of-scope Phase 4 Mode Analis Data.
 func New(registry *tools.Registry, cfg DispatcherConfig) *Service {
 	s := &Service{
 		registry:   registry,
@@ -35,7 +36,6 @@ func New(registry *tools.Registry, cfg DispatcherConfig) *Service {
 		discovered: make(map[string]map[string]bool),
 		promoted:   make(map[string]map[string]bool),
 	}
-	registry.RegisterDiscovery(queryTableTool{})
 	registry.Register(&findToolsTool{service: s})
 	registry.Register(&callToolTool{service: s})
 	s.index = NewIndex(registry.EnabledSpecs())

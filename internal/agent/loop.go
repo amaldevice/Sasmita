@@ -56,6 +56,10 @@ func (l *loopAgent) execute(ctx context.Context, emit func(domain.AgentSignal)) 
 		// wait, not from a fresh active context.
 		l.restoreCheckpoint(ctx)
 	}
+	provider := l.req.Provider
+	if provider == nil {
+		provider = l.engine.cfg.Provider
+	}
 	var allText strings.Builder
 	for turn := 0; turn < l.engine.cfg.MaxTurns; turn++ {
 		if err := ctx.Err(); err != nil {
@@ -65,7 +69,7 @@ func (l *loopAgent) execute(ctx context.Context, emit func(domain.AgentSignal)) 
 		var calls []model.ToolCall
 		var blocks []json.RawMessage
 		var text strings.Builder
-		err := l.engine.cfg.Provider.Stream(ctx, request, func(ev model.StreamEvent) {
+		err := provider.Stream(ctx, request, func(ev model.StreamEvent) {
 			switch ev.Kind {
 			case model.EventTextDelta:
 				text.WriteString(ev.Text)

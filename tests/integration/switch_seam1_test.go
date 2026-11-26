@@ -15,7 +15,7 @@ import (
 
 	"github.com/amaldevice/sasmita/internal/appsvc"
 	"github.com/amaldevice/sasmita/internal/domain"
-	"github.com/amaldevice/sasmita/internal/harness"
+	modescatalog "github.com/amaldevice/sasmita/internal/modes"
 	"github.com/amaldevice/sasmita/internal/model/adapters/anthropic"
 	"github.com/amaldevice/sasmita/internal/model/adapters/openai"
 	"github.com/amaldevice/sasmita/internal/persistence/migrations"
@@ -212,7 +212,7 @@ func TestSeam1BuiltInModesAndRereadThreshold(t *testing.T) {
 		}
 	}
 	if _, err := svc.StartRun(ctx, domain.StartRunRequest{
-		ConversationID: conv.ID, Text: "q", HarnessID: "coding",
+		ConversationID: conv.ID, Text: "q", ModeID: "coding",
 	}); err == nil {
 		t.Fatal("an unavailable Mode was accepted for a run")
 	}
@@ -221,7 +221,7 @@ func TestSeam1BuiltInModesAndRereadThreshold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if short.Warn || !short.Estimated || short.EstimatedTokens > harness.RereadWarningTokens {
+	if short.Warn || !short.Estimated || short.EstimatedTokens > modescatalog.RereadWarningTokens {
 		t.Fatalf("short conversation should not nag: %+v", short)
 	}
 	if err := store.AddMessage(ctx, &domain.Message{
@@ -234,12 +234,12 @@ func TestSeam1BuiltInModesAndRereadThreshold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !long.Warn || long.EstimatedTokens <= harness.RereadWarningTokens {
+	if !long.Warn || long.EstimatedTokens <= modescatalog.RereadWarningTokens {
 		t.Fatalf("long conversation should warn: %+v", long)
 	}
 
 	h, err := svc.StartRun(ctx, domain.StartRunRequest{
-		ConversationID: conv.ID, Text: "q", ModelRef: "gpt-new", HarnessID: "riset",
+		ConversationID: conv.ID, Text: "q", ModelRef: "gpt-new", ModeID: "riset",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -248,7 +248,7 @@ func TestSeam1BuiltInModesAndRereadThreshold(t *testing.T) {
 	if len(bodies) != 1 {
 		t.Fatalf("provider received %d requests, want 1", len(bodies))
 	}
-	mode, err := harness.Select("riset")
+	mode, err := modescatalog.Select("riset")
 	if err != nil {
 		t.Fatal(err)
 	}

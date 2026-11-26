@@ -11,7 +11,7 @@ import (
 )
 
 // Latest is the highest migration version known to this build.
-const Latest = 13
+const Latest = 14
 
 //go:embed *.sql
 var files embed.FS

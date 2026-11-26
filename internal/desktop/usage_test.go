@@ -41,7 +41,7 @@ func TestBindingsGetUsageReport(t *testing.T) {
 	started := time.Date(2026, 11, 26, 10, 0, 0, 0, time.UTC)
 	if err := store.CreateRun(t.Context(), &domain.Run{
 		ID: "r1", ConversationID: "c1", Status: domain.RunCompleted,
-		ModelRef: "gpt-test", HarnessID: "chat", StartedAt: started,
+		ModelRef: "gpt-test", ModeID: "chat", StartedAt: started,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestBindingsGetConversationCarriesAnswerUsage(t *testing.T) {
 	bindings, store := usageBindingService(t)
 	started := time.Date(2026, 11, 26, 10, 0, 0, 0, time.UTC)
 	run := &domain.Run{ID: "r1", ConversationID: "c1", Status: domain.RunQueued,
-		ModelRef: "gpt-test", HarnessID: "chat", StartedAt: started}
+		ModelRef: "gpt-test", ModeID: "chat", StartedAt: started}
 	if err := store.CreateRun(t.Context(), run); err != nil {
 		t.Fatal(err)
 	}

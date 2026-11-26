@@ -1,5 +1,8 @@
 // Package repositories owns all SQL for the v1 core tables. Application
 // services depend on Store, never on database/sql directly.
+//
+// The columns active_harness_id / harness_id keep their 001_init.sql names for
+// on-disk compatibility; the domain and wire vocabulary is Mode (GLOSSARY.md).
 package repositories
 
 import (
@@ -41,7 +44,7 @@ func (s *Store) CreateConversation(ctx context.Context, c *domain.Conversation) 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO conversations(id, project_id, title, active_harness_id, created_at, updated_at)
 		 VALUES(?,?,?,?,?,?)`,
-		c.ID, c.ProjectID, c.Title, c.ActiveHarnessID, stamp(c.CreatedAt), stamp(c.UpdatedAt))
+		c.ID, c.ProjectID, c.Title, c.ActiveModeID, stamp(c.CreatedAt), stamp(c.UpdatedAt))
 	return err
 }
 
@@ -51,7 +54,7 @@ func (s *Store) GetConversation(ctx context.Context, id string) (*domain.Convers
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, title, active_harness_id, created_at, updated_at
 		 FROM conversations WHERE id = ?`, id,
-	).Scan(&c.ID, &c.ProjectID, &c.Title, &c.ActiveHarnessID, &created, &updated)
+	).Scan(&c.ID, &c.ProjectID, &c.Title, &c.ActiveModeID, &created, &updated)
 	if err == sql.ErrNoRows {
 		return nil, domain.ErrNotFound
 	}
@@ -104,7 +107,7 @@ func (s *Store) listPage(ctx context.Context, cursor string, limit int, where st
 	for rows.Next() {
 		var c domain.Conversation
 		var created, updated string
-		if err := rows.Scan(&c.ID, &c.ProjectID, &c.Title, &c.ActiveHarnessID, &created, &updated); err != nil {
+		if err := rows.Scan(&c.ID, &c.ProjectID, &c.Title, &c.ActiveModeID, &created, &updated); err != nil {
 			return nil, "", err
 		}
 		c.CreatedAt, c.UpdatedAt = parseStamp(created), parseStamp(updated)
@@ -177,9 +180,9 @@ func (s *Store) ListMessages(ctx context.Context, conversationID string, limit i
 
 func (s *Store) CreateRun(ctx context.Context, r *domain.Run) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO runs(id, conversation_id, status, model_ref, harness_id, started_at, finished_at, original_run_id)
-		 VALUES(?,?,?,?,?,?,NULL,?)`,
-		r.ID, r.ConversationID, string(r.Status), r.ModelRef, r.HarnessID, stamp(r.StartedAt), nullableID(r.OriginalRunID))
+		`INSERT INTO runs(id, conversation_id, status, model_ref, harness_id, provider_id, attachments_json, started_at, finished_at, original_run_id)
+		 VALUES(?,?,?,?,?,?,?,?,NULL,?)`,
+		r.ID, r.ConversationID, string(r.Status), r.ModelRef, r.ModeID, r.ProviderID, encodeAttachments(r.Attachments), stamp(r.StartedAt), nullableID(r.OriginalRunID))
 	return err
 }
 
@@ -188,6 +191,20 @@ func nullableID(id string) any {
 		return nil
 	}
 	return id
+}
+
+func encodeAttachments(paths []string) string {
+	if paths == nil {
+		paths = []string{}
+	}
+	raw, _ := model.MarshalDeterministic(paths)
+	return string(raw)
+}
+
+func decodeAttachments(raw string) []string {
+	var paths []string
+	_ = json.Unmarshal([]byte(raw), &paths)
+	return paths
 }
 
 // UpdateRunStatus persists a transition only when TAD §8.3 allows it. A
@@ -227,13 +244,13 @@ func (s *Store) UpdateRunStatus(ctx context.Context, runID string, status domain
 
 func (s *Store) GetRun(ctx context.Context, id string) (*domain.Run, error) {
 	var r domain.Run
-	var status, started string
+	var status, started, attachments string
 	var finished sql.NullString
 	var original sql.NullString
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, conversation_id, status, model_ref, harness_id, started_at, finished_at, original_run_id
+		`SELECT id, conversation_id, status, model_ref, harness_id, provider_id, attachments_json, started_at, finished_at, original_run_id
 		 FROM runs WHERE id = ?`, id,
-	).Scan(&r.ID, &r.ConversationID, &status, &r.ModelRef, &r.HarnessID, &started, &finished, &original)
+	).Scan(&r.ID, &r.ConversationID, &status, &r.ModelRef, &r.ModeID, &r.ProviderID, &attachments, &started, &finished, &original)
 	if err == sql.ErrNoRows {
 		return nil, domain.ErrNotFound
 	}
@@ -241,6 +258,7 @@ func (s *Store) GetRun(ctx context.Context, id string) (*domain.Run, error) {
 		return nil, err
 	}
 	r.Status, r.StartedAt = domain.RunStatus(status), parseStamp(started)
+	r.Attachments = decodeAttachments(attachments)
 	if finished.Valid {
 		t := parseStamp(finished.String)
 		r.FinishedAt = &t
@@ -327,9 +345,9 @@ func (s *Store) StartRunTx(ctx context.Context, run *domain.Run, msg *domain.Mes
 		return err
 	}
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO runs(id, conversation_id, status, model_ref, harness_id, started_at, finished_at, original_run_id)
-		 VALUES(?,?,?,?,?,?,NULL,?)`,
-		run.ID, run.ConversationID, string(run.Status), run.ModelRef, run.HarnessID, stamp(run.StartedAt), nullableID(run.OriginalRunID),
+		`INSERT INTO runs(id, conversation_id, status, model_ref, harness_id, provider_id, attachments_json, started_at, finished_at, original_run_id)
+		 VALUES(?,?,?,?,?,?,?,?,NULL,?)`,
+		run.ID, run.ConversationID, string(run.Status), run.ModelRef, run.ModeID, run.ProviderID, encodeAttachments(run.Attachments), stamp(run.StartedAt), nullableID(run.OriginalRunID),
 	); err != nil {
 		tx.Rollback()
 		return err
@@ -352,7 +370,7 @@ func (s *Store) StartRunTx(ctx context.Context, run *domain.Run, msg *domain.Mes
 
 func (s *Store) ListRuns(ctx context.Context, conversationID string) ([]domain.Run, error) {
 	return s.queryRuns(ctx,
-		`SELECT id, conversation_id, status, model_ref, harness_id, started_at, finished_at, original_run_id
+		`SELECT id, conversation_id, status, model_ref, harness_id, provider_id, attachments_json, started_at, finished_at, original_run_id
 		 FROM runs WHERE conversation_id = ? ORDER BY rowid ASC`, conversationID)
 }
 
@@ -367,7 +385,7 @@ func (s *Store) ListActiveRuns(ctx context.Context) ([]domain.Run, error) {
 		placeholders[i] = "?"
 	}
 	return s.queryRuns(ctx,
-		`SELECT id, conversation_id, status, model_ref, harness_id, started_at, finished_at, original_run_id
+		`SELECT id, conversation_id, status, model_ref, harness_id, provider_id, attachments_json, started_at, finished_at, original_run_id
 		 FROM runs WHERE status IN (`+strings.Join(placeholders, ",")+`) ORDER BY rowid ASC`, args...)
 }
 
@@ -380,12 +398,13 @@ func (s *Store) queryRuns(ctx context.Context, query string, args ...any) ([]dom
 	var out []domain.Run
 	for rows.Next() {
 		var r domain.Run
-		var status, started string
+		var status, started, attachments string
 		var finished, original sql.NullString
-		if err := rows.Scan(&r.ID, &r.ConversationID, &status, &r.ModelRef, &r.HarnessID, &started, &finished, &original); err != nil {
+		if err := rows.Scan(&r.ID, &r.ConversationID, &status, &r.ModelRef, &r.ModeID, &r.ProviderID, &attachments, &started, &finished, &original); err != nil {
 			return nil, err
 		}
 		r.Status, r.StartedAt = domain.RunStatus(status), parseStamp(started)
+		r.Attachments = decodeAttachments(attachments)
 		if finished.Valid {
 			t := parseStamp(finished.String)
 			r.FinishedAt = &t
@@ -407,9 +426,9 @@ func (s *Store) StartRetryTx(ctx context.Context, run *domain.Run, touchedAt tim
 	}
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO runs(id, conversation_id, status, model_ref, harness_id, started_at, finished_at, original_run_id)
-		 VALUES(?,?,?,?,?,?,NULL,?)`,
-		run.ID, run.ConversationID, string(run.Status), run.ModelRef, run.HarnessID, stamp(run.StartedAt), nullableID(run.OriginalRunID),
+		`INSERT INTO runs(id, conversation_id, status, model_ref, harness_id, provider_id, attachments_json, started_at, finished_at, original_run_id)
+		 VALUES(?,?,?,?,?,?,?,?,NULL,?)`,
+		run.ID, run.ConversationID, string(run.Status), run.ModelRef, run.ModeID, run.ProviderID, encodeAttachments(run.Attachments), stamp(run.StartedAt), nullableID(run.OriginalRunID),
 	); err != nil {
 		return err
 	}
@@ -496,6 +515,24 @@ func (s *Store) MoveConversation(ctx context.Context, id, projectID string, at t
 		return err
 	}
 	return changed(res)
+}
+
+// GetProject resolves the workspace root for a conversation's project. The
+// no-project sentinel has an empty root_uri and therefore grants no folder.
+func (s *Store) GetProject(ctx context.Context, id string) (*domain.Project, error) {
+	var p domain.Project
+	var created, updated string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, name, root_uri, created_at, updated_at FROM projects WHERE id = ?`, id,
+	).Scan(&p.ID, &p.Name, &p.RootURI, &created, &updated)
+	if err == sql.ErrNoRows {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	p.CreatedAt, p.UpdatedAt = parseStamp(created), parseStamp(updated)
+	return &p, nil
 }
 
 // ListProjects omits the internal no-project sentinel row.

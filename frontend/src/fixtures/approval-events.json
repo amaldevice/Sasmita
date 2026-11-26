@@ -43,6 +43,7 @@
       "resource": "chart",
       "impact": "Isi lama akan diganti; berikan persetujuan hanya jika itu yang diinginkan.",
       "message": "Menimpa artifact — Isi lama akan diganti.",
+      "arguments": "{\"name\":\"chart\",\"content\":\"x\",\"overwrite\":true}",
       "argsHash": "fixture-args-hash",
       "policyHash": "fixture-policy-hash"
     }

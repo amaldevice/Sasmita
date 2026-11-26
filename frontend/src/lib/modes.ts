@@ -33,17 +33,17 @@ export interface ModeIPC {
   estimateSwitch(req: SwitchEstimateRequest): Promise<SwitchEstimate>;
 }
 
-/** Matches harness.RereadWarningTokens (TAD §9.3). */
+/** Matches modes.RereadWarningTokens (TAD §9.3). */
 export const REREAD_WARNING_TOKENS = 4000;
 
-/** Mirror of desktop/modes.go; a model is selected per run, not in a Mode. */
-export const BUILT_IN_MODES: Mode[] = [
-  { id: 'chat', name: 'Chat', instructions: '', toolsetIds: [], skillIds: [], workspace: 'none', permissionProfile: 'read-only', contextPolicy: 'full-history', available: true, phase: 1 },
-  { id: 'riset', name: 'Riset', instructions: 'Research the question carefully. Prefer verifiable sources and cite them with the answer.', toolsetIds: [], skillIds: [], workspace: 'none', permissionProfile: 'read-only', contextPolicy: 'full-history', available: true, phase: 2 },
-  { id: 'penulisan', name: 'Penulisan', instructions: 'Draft and revise text with a clear outline. Keep sections distinct and avoid repetition.', toolsetIds: [], skillIds: [], workspace: 'none', permissionProfile: 'read-only', contextPolicy: 'full-history', available: true, phase: 3 },
-  { id: 'analis-data', name: 'Analis Data', instructions: 'Analyse tabular data with bounded queries and report the method used.', toolsetIds: ['query_table'], skillIds: [], workspace: 'attached', permissionProfile: 'data-worker', contextPolicy: 'full-history', available: false, phase: 4 },
-  { id: 'coding', name: 'Coding', instructions: 'Work in the project workspace. Run tests and explain changes before editing files.', toolsetIds: ['file_read', 'shell'], skillIds: [], workspace: 'project', permissionProfile: 'sandboxed-shell', contextPolicy: 'full-history', available: false, phase: 5 },
-];
+import modeFixture from '../fixtures/modes.json';
+
+/**
+ * Deliberate seam-2 fake: Playwright has no Go process. It reads the same JSON
+ * fixture as internal/modes/catalog_parity_test.go, so drift fails that test.
+ * A model is selected per run, not as part of a Mode.
+ */
+export const BUILT_IN_MODES: Mode[] = modeFixture as Mode[];
 
 const labels: Record<string, { id: string; en: string }> = {
   chat: { id: 'Chat', en: 'Chat' },
@@ -76,7 +76,7 @@ class MyGoModeIPC implements ModeIPC {
   }
 }
 
-/** Conservative estimate matching harness.EstimateSwitch for seam 2. */
+/** Conservative estimate matching modes.EstimateSwitch for seam 2. */
 function estimateHistory(messages: { text: string }[]): SwitchEstimate {
   const chars = messages.reduce((sum, message) => sum + message.text.length + 16, 0);
   const estimatedTokens = Math.ceil(chars / 4);

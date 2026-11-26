@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -26,16 +27,19 @@ import (
 )
 
 const (
-	defaultModel   = "gpt-4o-mini"
-	defaultHarness = "chat"
+	defaultModel = "gpt-4o-mini"
+	defaultMode  = "chat"
 )
+
+// ErrProviderUnavailable means a run named a provider profile but the service
+// has no resolver (a chat-only shell). It fails before any message is stored.
+var ErrProviderUnavailable = errors.New("provider profile resolution is not configured")
 
 type Config struct {
 	Provider         model.ModelProvider
 	DefaultModel     string
 	CoalesceSize     int
 	CoalesceInterval time.Duration // 0 disables timer-based flushing
-	ContextLimit     int           // retained for callers; no longer truncates history
 	Tools            []model.ToolDefinition
 	// EnableTools opts a service into the built-in toolset (#22). Tool schemas
 	// are frozen for the service lifetime; without it the wire is unchanged.
@@ -77,16 +81,21 @@ type Service struct {
 	runtime      *runtime.Manager
 	approvals    *runtime.ApprovalCoordinator
 	providerKind domain.ProviderKind
+	providerFor  func(context.Context, string) (model.ModelProvider, error)
 	genui        *genui.Store
 	discovery    *discovery.Service
+}
+
+// SetProviderResolver wires profile-based adapter resolution. The shell that
+// owns provider profiles calls this once during setup; chat-only shells keep
+// their single configured adapter.
+func (s *Service) SetProviderResolver(resolve func(context.Context, string) (model.ModelProvider, error)) {
+	s.providerFor = resolve
 }
 
 func New(store *repositories.Store, cfg Config) *Service {
 	if cfg.CoalesceSize <= 0 {
 		cfg.CoalesceSize = 32
-	}
-	if cfg.ContextLimit <= 0 {
-		cfg.ContextLimit = 50
 	}
 	if cfg.DefaultModel == "" {
 		cfg.DefaultModel = defaultModel
@@ -115,8 +124,8 @@ func New(store *repositories.Store, cfg Config) *Service {
 			gen = genui.NewStore()
 			registry.Register(genui.NewRenderTool(gen))
 			registry.Register(genui.NewSkillTool())
-			// Meta-tools join the frozen list before it is captured; query_table
-			// is discovery-only and becomes native only at compaction.
+			// Meta-tools join the frozen list before it is captured. No
+			// discovery-only tools are enabled in v1 (query_table is Phase 4).
 			disc = discovery.New(registry, discovery.DispatcherConfig{})
 			cfg.Tools = registry.Definitions()
 		}
@@ -167,20 +176,20 @@ func randomID() string {
 	return hex.EncodeToString(b[:])
 }
 
-func (s *Service) CreateConversation(ctx context.Context, projectID, title, harnessID string) (*domain.Conversation, error) {
+func (s *Service) CreateConversation(ctx context.Context, projectID, title, modeID string) (*domain.Conversation, error) {
 	// An empty project id is valid: the conversation is not in a project and
 	// therefore has no folder to open (migrations/003_init.sql).
-	if harnessID == "" {
-		harnessID = defaultHarness
+	if modeID == "" {
+		modeID = defaultMode
 	}
 	now := s.cfg.Now()
 	conv := &domain.Conversation{
-		ID:              s.cfg.NewID(),
-		ProjectID:       projectID,
-		Title:           title,
-		ActiveHarnessID: harnessID,
-		CreatedAt:       now,
-		UpdatedAt:       now,
+		ID:           s.cfg.NewID(),
+		ProjectID:    projectID,
+		Title:        title,
+		ActiveModeID: modeID,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 	if err := s.store.CreateConversation(ctx, conv); err != nil {
 		return nil, err

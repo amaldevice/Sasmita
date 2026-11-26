@@ -8,7 +8,7 @@ export interface Conversation {
   id: string;
   projectId: string;
   title: string;
-  activeHarnessId: string;
+  activeModeId: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -90,7 +90,9 @@ export interface StartRunRequest {
   conversationId: string;
   text: string;
   modelRef: string;
-  harnessId: string;
+  modeId: string;
+  providerId?: string;
+  attachments?: string[];
 }
 
 // Mirrors domain.RunEvent in internal/domain/events.go. Tags are fixed by TAD §14.2.
@@ -111,6 +113,15 @@ export interface RunSnapshot {
 
 export interface RunHandle {
   runId: string;
+}
+
+/** Derived prefix reset record; canonical history is untouched. */
+export interface CompactionRecord {
+  id: string;
+  conversationId: string;
+  runId: string;
+  summary: string;
+  estimatedTokens: number;
 }
 
 /** One visible step in the activity timeline (ticket #22). */
@@ -136,6 +147,8 @@ export interface Approval {
   resource: string;
   impact: string;
   message: string;
+  /** Exact bound arguments, echoed back on resolve for hash revalidation. */
+  arguments?: string;
   argsHash: string;
   policyHash: string;
 }

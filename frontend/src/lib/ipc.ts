@@ -13,6 +13,7 @@ import { parseUIBlock } from './uiblocks';
 import type {
   Approval,
   ApprovalDecision,
+  CompactionRecord,
   Conversation,
   ConversationDetail,
   Project,
@@ -29,7 +30,7 @@ import type {
 
 /** The typed IPC surface the Go shell (MyGo, or the Wails fallback) provides. */
 export interface IPC {
-  createConversation(projectId: string, title: string, harnessId: string): Promise<Conversation>;
+  createConversation(projectId: string, title: string, modeId: string): Promise<Conversation>;
   listConversations(
     projectId: string,
     cursor: string,
@@ -41,13 +42,18 @@ export interface IPC {
   moveConversation(conversationId: string, projectId: string): Promise<Conversation>;
   searchConversations(query: string, limit: number): Promise<SearchResult[]>;
   listProjects(): Promise<Project[]>;
+  /** Native file picker; returns filesystem paths usable as tool roots. */
+  pickAttachments(): Promise<string[]>;
   startRun(req: StartRunRequest, onEvent: (event: RunEvent) => void): Promise<RunHandle>;
   cancelRun(runId: string): Promise<void>;
   listRuns(conversationId: string): Promise<RunRecord[]>;
   resumeRun(runId: string, onEvent: (event: RunEvent) => void): Promise<RunHandle>;
   getRunSnapshot(runId: string): Promise<RunSnapshot>;
   listPendingApprovals(conversationId: string): Promise<Approval[]>;
-  resolveApproval(approvalId: string, decision: ApprovalDecision, args?: string): Promise<void>;
+  /** User-requested compaction; returns the stored structured summary. */
+  compactConversation(conversationId: string): Promise<CompactionRecord>;
+  /** args is the exact bound payload; an empty or changed value must be rejected. */
+  resolveApproval(approvalId: string, decision: ApprovalDecision, args: string): Promise<void>;
   /** Bounded, read-only fetch of a large dataset referenced by a UI block. */
   getUIData(ref: string, limit: number): Promise<UIData>;
   /** Persist a committed, debounced view-local state patch as an append-only event. */
@@ -62,11 +68,14 @@ const listPendingApprovalsBinding = bind<[string], Approval[]>(
 const resolveApprovalBinding = bind<[string, string, string], void>(
   'shellService.ResolveApproval', (approvalID: string, decision: string, args: string) => [approvalID, decision, args],
 );
+const compactConversationBinding = bind<[string], CompactionRecord>(
+  'shellService.CompactConversation', (conversationID: string) => [conversationID],
+);
 
 /** Uses the TypeScript client generated from the Go bindings by `mygo generate`. */
 export class MyGoIPC implements IPC {
-  createConversation(projectId: string, title: string, harnessId: string): Promise<Conversation> {
-    return shellService.createConversation(projectId, title, harnessId);
+  createConversation(projectId: string, title: string, modeId: string): Promise<Conversation> {
+    return shellService.createConversation(projectId, title, modeId);
   }
 
   listConversations(
@@ -129,6 +138,10 @@ export class MyGoIPC implements IPC {
     return shellService.listProjects();
   }
 
+  pickAttachments(): Promise<string[]> {
+    return shellService.pickAttachments();
+  }
+
   getRunSnapshot(runId: string): Promise<RunSnapshot> {
     return shellService.getRunSnapshot(runId);
   }
@@ -137,8 +150,13 @@ export class MyGoIPC implements IPC {
     return listPendingApprovalsBinding(conversationId);
   }
 
-  async resolveApproval(approvalId: string, decision: ApprovalDecision, args = ''): Promise<void> {
+  async resolveApproval(approvalId: string, decision: ApprovalDecision, args: string): Promise<void> {
+    if (!args) throw new Error('approval arguments are missing');
     await resolveApprovalBinding(approvalId, decision, args);
+  }
+
+  compactConversation(conversationId: string): Promise<CompactionRecord> {
+    return compactConversationBinding(conversationId);
   }
 
   async getUIData(ref: string, limit: number): Promise<UIData> {
@@ -167,6 +185,7 @@ interface StoredState {
   runs: RunRecord[];
   projects: Project[];
   approvals: Record<string, StoredApproval>;
+  attachmentsByRun: Record<string, string[]>;
 }
 
 function seedState(): StoredState {
@@ -175,7 +194,7 @@ function seedState(): StoredState {
     id: 'conv-1',
     projectId: 'p1',
     title: 'First chat',
-    activeHarnessId: 'chat',
+    activeModeId: 'chat',
     createdAt: now,
     updatedAt: now,
   };
@@ -189,6 +208,7 @@ function seedState(): StoredState {
       { id: 'p2', name: 'Personal', rootUri: '', createdAt: now, updatedAt: now },
     ],
     approvals: {},
+    attachmentsByRun: {},
   };
 }
 
@@ -217,6 +237,7 @@ export class FakeIPC implements IPC {
             runs: parsed.runs ?? [],
             projects: parsed.projects ?? seedState().projects,
             approvals: parsed.approvals ?? {},
+            attachmentsByRun: parsed.attachmentsByRun ?? {},
           }
         : seedState();
     } catch {
@@ -232,13 +253,13 @@ export class FakeIPC implements IPC {
     return `run-${Date.now()}-${this.nextRun++}`;
   }
 
-  async createConversation(projectId: string, title: string, harnessId: string): Promise<Conversation> {
+  async createConversation(projectId: string, title: string, modeId: string): Promise<Conversation> {
     const now = new Date().toISOString();
     const conversation: Conversation = {
       id: `conv-${Date.now()}`,
       projectId,
       title,
-      activeHarnessId: harnessId,
+      activeModeId: modeId,
       createdAt: now,
       updatedAt: now,
     };
@@ -303,6 +324,33 @@ export class FakeIPC implements IPC {
     return structuredClone(this.state.projects);
   }
 
+  async pickAttachments(): Promise<string[]> {
+    return ['note.txt'];
+  }
+
+  async compactConversation(conversationId: string): Promise<CompactionRecord> {
+    const detail = this.state.details[conversationId];
+    if (!detail) throw new Error(`conversation ${conversationId} not found`);
+    const record: CompactionRecord = {
+      id: `compact-${Date.now()}`, conversationId, runId: '',
+      summary: 'ringkasan percakapan', estimatedTokens: detail.messages.length * 16,
+    };
+    const latest = [...this.state.runs].reverse().find((run) => run.conversationId === conversationId);
+    if (latest) {
+      record.runId = latest.runId;
+      const snapshot = this.state.snapshots[latest.runId];
+      if (snapshot) {
+        snapshot.events.push({
+          runId: latest.runId, seq: latestSeq(snapshot.events) + 1,
+          type: 'context.compacted', timestamp: new Date().toISOString(),
+          payload: { version: 1, compaction: record },
+        });
+      }
+    }
+    this.save();
+    return record;
+  }
+
   async getRunSnapshot(runId: string): Promise<RunSnapshot> {
     const snapshot = this.state.snapshots[runId];
     if (!snapshot) throw new Error(`run ${runId} not found`);
@@ -315,11 +363,13 @@ export class FakeIPC implements IPC {
       .map((stored) => structuredClone(stored.card));
   }
 
-  async resolveApproval(approvalId: string, decision: ApprovalDecision, args = ''): Promise<void> {
+  async resolveApproval(approvalId: string, decision: ApprovalDecision, args: string): Promise<void> {
     const stored = this.state.approvals[approvalId];
     if (!stored) throw new Error(`approval ${approvalId} not found`);
     if (stored.decision !== null) return;
-    void args; // the backend revalidates the bound argument hash; the replay only records the choice
+    if (!args || args !== (stored.card.arguments ?? '')) {
+      throw new Error('approval arguments changed');
+    }
     stored.decision = decision;
     this.save();
     const wake = this.decisions.get(stored.runId);
@@ -418,6 +468,7 @@ export class FakeIPC implements IPC {
       status: 'running',
       answer: '',
     });
+    this.state.attachmentsByRun[runId] = [...(req.attachments ?? [])];
     this.save();
     this.replay(runId, req.conversationId, onEvent);
     return { runId };

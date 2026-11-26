@@ -4,14 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/url"
 	"strings"
 	"sync"
 
 	"github.com/amaldevice/sasmita/internal/agent"
 	"github.com/amaldevice/sasmita/internal/domain"
 	"github.com/amaldevice/sasmita/internal/genui"
-	"github.com/amaldevice/sasmita/internal/harness"
 	"github.com/amaldevice/sasmita/internal/model"
+	"github.com/amaldevice/sasmita/internal/modes"
+	"github.com/amaldevice/sasmita/internal/tools"
 )
 
 // eventStream is a bounded channel for UI delivery. Coalescable events are
@@ -101,13 +103,39 @@ func (s *Service) ResumeRun(ctx context.Context, originalRunID string) (*RunHand
 		ConversationID: original.ConversationID,
 		Text:           text,
 		ModelRef:       original.ModelRef,
-		HarnessID:      original.HarnessID,
+		ModeID:         original.ModeID,
+		ProviderID:     original.ProviderID,
+		Attachments:    original.Attachments,
 	}, original.ID)
+}
+
+// providerForRun resolves the adapter and wire kind for one run. An empty
+// profile ID keeps the shell's single configured adapter.
+func (s *Service) providerForRun(ctx context.Context, providerID string) (model.ModelProvider, domain.ProviderKind, error) {
+	if providerID == "" {
+		return s.cfg.Provider, s.providerKind, nil
+	}
+	if s.providerFor == nil {
+		return nil, "", ErrProviderUnavailable
+	}
+	provider, err := s.providerFor(ctx, providerID)
+	if err != nil {
+		return nil, "", err
+	}
+	var kind domain.ProviderKind
+	if aware, ok := provider.(model.ProviderKindAware); ok {
+		kind = domain.ProviderKind(aware.ProviderKind())
+	}
+	return provider, kind, nil
 }
 
 func (s *Service) start(ctx context.Context, req domain.StartRunRequest, originalRunID string) (*RunHandle, error) {
 	if strings.TrimSpace(req.Text) == "" {
 		return nil, domain.ErrInvalidArgument
+	}
+	provider, kind, err := s.providerForRun(ctx, req.ProviderID)
+	if err != nil {
+		return nil, err
 	}
 	if _, err := s.store.GetConversation(ctx, req.ConversationID); err != nil {
 		return nil, err
@@ -116,11 +144,11 @@ func (s *Service) start(ctx context.Context, req domain.StartRunRequest, origina
 	if modelRef == "" {
 		modelRef = s.cfg.DefaultModel
 	}
-	modeID := req.HarnessID
+	modeID := req.ModeID
 	if modeID == "" {
-		modeID = defaultHarness
+		modeID = defaultMode
 	}
-	if _, err := harness.Select(modeID); err != nil {
+	if _, err := modes.Select(modeID); err != nil {
 		return nil, err
 	}
 	now := s.cfg.Now()
@@ -129,7 +157,9 @@ func (s *Service) start(ctx context.Context, req domain.StartRunRequest, origina
 		ConversationID: req.ConversationID,
 		Status:         domain.RunQueued,
 		ModelRef:       modelRef,
-		HarnessID:      modeID,
+		ModeID:         modeID,
+		ProviderID:     req.ProviderID,
+		Attachments:    append([]string(nil), req.Attachments...),
 		StartedAt:      now,
 		OriginalRunID:  originalRunID,
 	}
@@ -174,7 +204,7 @@ func (s *Service) start(ctx context.Context, req domain.StartRunRequest, origina
 	s.runtime.Register(run.ID, cancel, func(eventType string, payload json.RawMessage, important bool) error {
 		return s.emitRaw(context.WithoutCancel(ctx), stream, run.ID, eventType, payload, important)
 	})
-	go s.execute(runCtx, run, stream, cancel)
+	go s.execute(runCtx, run, stream, cancel, provider, kind)
 	return handle, nil
 }
 
@@ -275,7 +305,7 @@ func (s *Service) emitTerminal(ctx context.Context, stream *eventStream, runID, 
 	stream.send(ev, true, true)
 }
 
-func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStream, cancel context.CancelFunc) {
+func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStream, cancel context.CancelFunc, provider model.ModelProvider, kind domain.ProviderKind) {
 	defer cancel()
 	defer s.runtime.Finish(run.ID)
 	persistCtx := context.WithoutCancel(ctx)
@@ -297,7 +327,7 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 	// Active context is a derived view of canonical history: Mode instructions,
 	// provider filtering and compaction never rewrite stored messages. The ADK
 	// agent builds each request from this view plus appended tool pairs.
-	_, view, err := s.activeContext(persistCtx, run.ConversationID, run.HarnessID)
+	_, view, err := s.activeContext(persistCtx, run.ConversationID, run.ModeID, kind)
 	if err != nil {
 		s.fail(ctx, persistCtx, run, stream, err)
 		return
@@ -309,13 +339,25 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 		s.fail(ctx, persistCtx, run, stream, err)
 		return
 	}
-	roots := append([]string(nil), s.cfg.WorkspaceRoots...)
-	roots = append(roots, s.cfg.AttachedFiles...)
+	// Folder access comes from the conversation's project, never from a
+	// service-wide setting. A conversation without a project has no folder at
+	// all; only files explicitly attached to this run are readable (story 16).
+	roots := make([]string, 0, 1+len(run.Attachments))
+	if conv.ProjectID != "" {
+		if project, err := s.store.GetProject(persistCtx, conv.ProjectID); err == nil {
+			if root := projectRoot(project.RootURI); root != "" {
+				roots = append(roots, root)
+			}
+		}
+	}
+	attached := append([]string(nil), run.Attachments...)
+	roots = append(roots, attached...)
+	scope := tools.Scope{Roots: roots, Attached: attached}
+	agentCtx := tools.WithScope(ctx, scope)
 	checkpointID := run.ID
 	if run.OriginalRunID != "" {
 		checkpointID = run.OriginalRunID
 	}
-
 
 	var full, pending strings.Builder
 	var contentBlocks []json.RawMessage
@@ -332,10 +374,10 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 	// The ADK-backed agent owns the tool loop. It appends tool call/result
 	// pairs to canonical history through the signals below; the earlier prefix
 	// is never rewritten (ADR-0001).
-	result, streamErr := s.cfg.Agent.Run(ctx, agent.Request{
+	result, streamErr := s.cfg.Agent.Run(agentCtx, agent.Request{
 		ConversationID: run.ConversationID, RunID: run.ID, CheckpointID: checkpointID,
-		Mode: run.HarnessID, ProjectID: conv.ProjectID, ScopeRoots: roots,
-		ModelRef: run.ModelRef, History: view,
+		Mode: run.ModeID, ProjectID: conv.ProjectID, ScopeRoots: roots,
+		ModelRef: run.ModelRef, History: view, Provider: provider,
 	}, func(sig domain.AgentSignal) {
 		switch sig.Kind {
 		case domain.AgentTextDelta:
@@ -393,7 +435,7 @@ func (s *Service) execute(ctx context.Context, run *domain.Run, stream *eventStr
 
 	// Compaction is the only allowed prefix reset; it happens at a safe
 	// boundary after the assistant turn is persisted (ADR-0001, TAD §11.5).
-	s.maybeCompact(persistCtx, stream, run)
+	s.maybeCompact(persistCtx, stream, run, provider, kind)
 
 	now := s.cfg.Now()
 	_ = s.store.UpdateRunStatus(persistCtx, run.ID, domain.RunCompleted, &now)
@@ -464,7 +506,8 @@ func (s *Service) persistUsage(ctx context.Context, run *domain.Run, u *model.Us
 }
 
 // emitApprovalRequired persists the waiting state and streams the inline card.
-// Arguments stay out of IPC; the stored approval keeps them for revalidation.
+// The exact arguments travel with the card so the UI can echo them back; the
+// stored approval remains the source of truth for revalidation at resolve.
 func (s *Service) emitApprovalRequired(ctx context.Context, stream *eventStream, runID string, a *domain.Approval) {
 	if a == nil {
 		return
@@ -475,7 +518,8 @@ func (s *Service) emitApprovalRequired(ctx context.Context, stream *eventStream,
 	raw, err := json.Marshal(domain.ApprovalPayload{
 		Envelope: envelope(), ApprovalID: a.ID, CallID: a.CallID, ToolID: a.ToolID,
 		Status: string(domain.RunAwaitingApproval), Action: a.Action, Resource: a.Resource,
-		Impact: a.Impact, Message: a.Message, ArgsHash: a.ArgsHash, PolicyHash: a.PolicyHash,
+		Impact: a.Impact, Message: a.Message, Arguments: a.Arguments,
+		ArgsHash: a.ArgsHash, PolicyHash: a.PolicyHash,
 	})
 	if err != nil {
 		return
@@ -581,6 +625,23 @@ func (s *Service) SaveUIState(ctx context.Context, runID, blockID string, patch 
 	}
 	_, err = s.store.AppendRunEvent(ctx, runID, domain.EventUIState, raw)
 	return err
+}
+
+// projectRoot converts a project root_uri to a filesystem path. An empty or
+// non-file URI yields no root, which keeps the no-project sentinel isolated.
+func projectRoot(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	u, err := url.Parse(trimmed)
+	if err == nil && u.Scheme == "file" {
+		return u.Path
+	}
+	if err == nil && u.Scheme != "" {
+		return ""
+	}
+	return trimmed
 }
 
 func rawParts(blocks []json.RawMessage) []domain.ContentPart {

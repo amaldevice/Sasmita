@@ -42,7 +42,7 @@ func seedUsageRun(t *testing.T, store *repositories.Store, id, day string, cache
 	}
 	if err := store.CreateRun(t.Context(), &domain.Run{
 		ID: id, ConversationID: "c1", Status: domain.RunCompleted,
-		ModelRef: "gpt-test", HarnessID: "chat", StartedAt: started,
+		ModelRef: "gpt-test", ModeID: "chat", StartedAt: started,
 	}); err != nil {
 		t.Fatal(err)
 	}
