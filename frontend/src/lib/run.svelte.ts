@@ -1,6 +1,7 @@
 import { answerFromSnapshot } from './activity';
 import { usageFromEvent, type UsageData } from './usage';
-import type { RunEvent, RunSnapshot, ToolStep } from './types';
+import type { RunEvent, RunSnapshot, ToolStep, UIBlock } from './types';
+import { parseUIBlock } from './uiblocks';
 
 /**
  * Reduces the versioned RunEvent stream into the answer shown in the chat.
@@ -17,6 +18,7 @@ export class ChatRun {
   deltaCount = $state(0);
   usage = $state<UsageData | null>(null);
   steps = $state<ToolStep[]>([]);
+  blocks = $state<UIBlock[]>([]);
   startedAt = $state('');
   lastEventAt = $state('');
 
@@ -41,6 +43,7 @@ export class ChatRun {
     this.deltaCount = 0;
     this.usage = null;
     this.steps = [];
+    this.blocks = [];
     this.startedAt = '';
     this.lastEventAt = '';
   }
@@ -116,6 +119,11 @@ export class ChatRun {
         this.status = 'interrupted';
         this.streaming = false;
         break;
+      case 'ui.block': {
+        const block = parseUIBlock(event.payload);
+        if (block) this.blocks = [...this.blocks, block];
+        break;
+      }
       case 'model.text_delta':
         this.answer += payload.text ?? '';
         this.deltaCount += 1;

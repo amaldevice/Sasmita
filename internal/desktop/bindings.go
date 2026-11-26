@@ -5,6 +5,11 @@ package desktop
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"time"
 
 	"github.com/amaldevice/sasmita/internal/appsvc"
@@ -63,13 +68,14 @@ type UsageDTO struct {
 }
 
 type MessageDTO struct {
-	ID             string    `json:"id"`
-	ConversationID string    `json:"conversationId"`
-	Role           string    `json:"role"`
-	Text           string    `json:"text"`
-	CreatedAt      time.Time `json:"createdAt"`
-	RunID          string    `json:"runId,omitempty"`
-	Usage          *UsageDTO `json:"usage,omitempty"`
+	ID             string            `json:"id"`
+	ConversationID string            `json:"conversationId"`
+	Role           string            `json:"role"`
+	Text           string            `json:"text"`
+	Blocks         []json.RawMessage `json:"blocks,omitempty"`
+	CreatedAt      time.Time         `json:"createdAt"`
+	RunID          string            `json:"runId,omitempty"`
+	Usage          *UsageDTO         `json:"usage,omitempty"`
 }
 
 // UsageRowDTO is one per-model or per-day line in Settings › Diagnostics.
@@ -119,6 +125,14 @@ type RunHandleDTO struct {
 	Abort          func()
 }
 
+// UIDataDTO is the bounded result of a host data fetch. Large UI datasets stay
+// in artifacts and never enter the model prompt (TAD §12A.11).
+type UIDataDTO struct {
+	Ref       string          `json:"ref"`
+	Rows      json.RawMessage `json:"rows"`
+	Truncated bool            `json:"truncated"`
+}
+
 type RunSnapshotDTO struct {
 	RunID  string            `json:"runId"`
 	Status string            `json:"status"`
@@ -151,6 +165,8 @@ type Bindings interface {
 	ResumeRun(ctx context.Context, runID string) (RunHandleDTO, error)
 	ListRuns(ctx context.Context, conversationID string) ([]RunDTO, error)
 	GetRunSnapshot(ctx context.Context, runID string) (RunSnapshotDTO, error)
+	GetUIData(ctx context.Context, ref string, limit int) (UIDataDTO, error)
+	SaveUIState(ctx context.Context, runID, blockID string, patch json.RawMessage) error
 	AddProviderProfile(ctx context.Context, req AddProviderProfileRequestDTO) (ProviderProfileDTO, error)
 	ListProviderProfiles(ctx context.Context) ([]ProviderProfileDTO, error)
 	UpdateProviderProfile(ctx context.Context, req UpdateProviderProfileRequestDTO) (ProviderProfileDTO, error)
@@ -171,7 +187,12 @@ type Service struct {
 	svc        *appsvc.Service
 	providers  *appsvc.ProviderService
 	localProbe onboarding.Probe
+	uiDataDir  string
 }
+
+// SetUIDataDir configures the read-only artifact directory used by the bounded
+// UI data API. It does not change any existing binding signature.
+func (s *Service) SetUIDataDir(dir string) { s.uiDataDir = dir }
 
 var _ Bindings = (*Service)(nil)
 
@@ -224,9 +245,15 @@ func (s *Service) GetConversation(ctx context.Context, conversationID string) (C
 	}
 	messages := make([]MessageDTO, 0, len(detail.Messages))
 	for _, m := range detail.Messages {
+		var blocks []json.RawMessage
+		for _, part := range m.Content {
+			if part.Type == "ui_block" && len(part.Raw) > 0 {
+				blocks = append(blocks, append(json.RawMessage(nil), part.Raw...))
+			}
+		}
 		messages = append(messages, MessageDTO{
 			ID: m.ID, ConversationID: m.ConversationID, Role: string(m.Role),
-			Text: m.Text(), CreatedAt: m.CreatedAt, RunID: m.RunID,
+			Text: m.Text(), Blocks: blocks, CreatedAt: m.CreatedAt, RunID: m.RunID,
 			Usage: usageDTO(m.Usage),
 		})
 	}
@@ -339,6 +366,53 @@ func (s *Service) GetRunSnapshot(ctx context.Context, runID string) (RunSnapshot
 		Answer: snapshot.Answer,
 		Events: snapshot.Events,
 	}, nil
+}
+
+const (
+	maxUIDataRows  = 2000
+	maxUIDataBytes = 5 << 20
+)
+
+var uiArtifactRef = regexp.MustCompile(`^artifact://([A-Za-z0-9_-]{1,128})$`)
+
+// GetUIData resolves an opaque artifact reference to a bounded slice of rows.
+// The ref never becomes a filesystem path supplied by the model: only a safe
+// id is joined to the configured directory, and both file size and row count
+// are capped.
+func (s *Service) GetUIData(_ context.Context, ref string, limit int) (UIDataDTO, error) {
+	m := uiArtifactRef.FindStringSubmatch(ref)
+	if m == nil || s.uiDataDir == "" {
+		return UIDataDTO{}, domain.ErrInvalidArgument
+	}
+	path := filepath.Join(s.uiDataDir, m[1]+".json")
+	info, err := os.Stat(path)
+	if err != nil || info.Size() > maxUIDataBytes {
+		return UIDataDTO{}, domain.ErrNotFound
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return UIDataDTO{}, err
+	}
+	var rows []json.RawMessage
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return UIDataDTO{}, fmt.Errorf("invalid UI data: %w", err)
+	}
+	if limit <= 0 || limit > maxUIDataRows {
+		limit = maxUIDataRows
+	}
+	truncated := len(rows) > limit
+	if truncated {
+		rows = rows[:limit]
+	}
+	encoded, err := json.Marshal(rows)
+	if err != nil {
+		return UIDataDTO{}, err
+	}
+	return UIDataDTO{Ref: ref, Rows: encoded, Truncated: truncated}, nil
+}
+
+func (s *Service) SaveUIState(ctx context.Context, runID, blockID string, patch json.RawMessage) error {
+	return s.svc.SaveUIState(ctx, runID, blockID, patch)
 }
 
 // GetUsageReport exposes the Diagnostics aggregation; the hit-rate warning is
