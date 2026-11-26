@@ -29,6 +29,7 @@ type shellService struct {
 	bindings *desktop.Service
 	app      *appsvc.Service
 	live     liveReporter
+	notifier desktopNotifier
 }
 
 func (s *shellService) CreateConversation(ctx context.Context, projectID, title, modeID string) (desktop.ConversationDTO, error) {
@@ -119,6 +120,13 @@ func (s *shellService) SearchConversations(ctx context.Context, query string, li
 
 func (s *shellService) ListProjects(ctx context.Context) ([]desktop.ProjectDTO, error) {
 	return s.bindings.ListProjects(ctx)
+}
+
+// NotifyApproval is the one-way binding used by the renderer's focus-gated
+// hook. The Go side checks frontmost state again, so a stale renderer cannot
+// produce a notification while Sasmita is in the foreground.
+func (s *shellService) NotifyApproval(_ context.Context, title, body string) error {
+	return notifyApproval(s.notifier, title, body)
 }
 
 // CompactConversation is the user-requested compaction command; canonical
@@ -273,6 +281,7 @@ func main() {
 			return
 		}
 		win := mygo.NewWindow(mygo.WindowOptions{Title: "Sasmita", URL: "/"})
+		shell.notifier = mygoNotifier{window: win}
 		// MyGo v0.10 treats custom schemes as trusted in the main frame.
 		// NavigateEvent has no frame flag; iframe loads of artifact:// are not
 		// user-initiated, so blocking user-initiated ones keeps inline
