@@ -3,6 +3,7 @@
   import Activity from './lib/Activity.svelte';
   import Composer from './lib/Composer.svelte';
   import Connections from './lib/Connections.svelte';
+  import Diagnostics from './lib/Diagnostics.svelte';
   import EmptyState from './lib/EmptyState.svelte';
   import InterruptedRun from './lib/InterruptedRun.svelte';
   import Icon from './lib/Icon.svelte';
@@ -18,7 +19,10 @@
   } from './lib/onboarding';
   import { ChatRun } from './lib/run.svelte';
   import { theme } from './lib/theme.svelte';
-  import type { Conversation, ConversationDetail, Project, RunRecord, SearchResult, ShellView } from './lib/types';
+  import { recordUsageEvent } from './lib/usage';
+  import { usageSettings } from './lib/usage-settings.svelte';
+  import Usage from './lib/Usage.svelte';
+  import type { Conversation, ConversationDetail, Project, RunEvent, RunRecord, SearchResult, ShellView } from './lib/types';
 
   let ipc = $state<IPC | null>(null);
   let conversations = $state<Conversation[]>([]);
@@ -49,6 +53,8 @@
   let moveProject = $state('');
   let showOnboarding = $state(false);
   let examplePrompts = $state<ExamplePrompt[]>([]);
+  let hoveredAnswer = $state('');
+  let showDiagnostics = $state(false);
 
   // A conversation without a project has no root_uri, so no folder action.
   let hasFolder = $derived.by(() => {
@@ -119,11 +125,18 @@
     await ipc.cancelRun(run.runId);
   }
 
+  // Live events feed both the chat run and the Diagnostics usage log. Restore
+  // replays go through run.restore instead, so history is never double-counted.
+  function applyEvent(event: RunEvent): void {
+    run.apply(event);
+    recordUsageEvent(event);
+  }
+
   async function continueRun() {
     if (!ipc || !interrupted) return;
     const original = interrupted;
     run.begin();
-    const handle = await ipc.resumeRun(original.runId, (event) => run.apply(event));
+    const handle = await ipc.resumeRun(original.runId, applyEvent);
     run.setRunId(handle.runId);
     await refreshRuns();
   }
@@ -153,7 +166,7 @@
     run.begin();
     const handle = await ipc.startRun(
       { conversationId: selectedId, text, modelRef: 'gpt-test', harnessId: 'chat' },
-      (event) => run.apply(event),
+      applyEvent,
     );
     run.setRunId(handle.runId);
   }
@@ -276,9 +289,17 @@
             class="message"
             class:user={message.role === 'user'}
             data-testid={message.role === 'user' ? 'user-message' : 'assistant-answer'}
+            role="group"
+            onmouseenter={() => (hoveredAnswer = message.id)}
+            onmouseleave={() => (hoveredAnswer = '')}
           >
             <div class="role">{message.role === 'user' ? i18n.t('you') : 'Sasmita'}</div>
             <p>{message.text}</p>
+            <Usage
+              usage={message.role === 'assistant' ? (message.usage ?? null) : null}
+              alwaysShow={usageSettings.alwaysShow}
+              open={hoveredAnswer === message.id}
+            />
           </article>
         {/each}
 
@@ -286,17 +307,12 @@
           <article class="message streaming" data-testid="streaming-answer">
             <div class="role">Sasmita</div>
             <p>{run.answer}</p>
+            <Usage usage={run.usage} alwaysShow={usageSettings.alwaysShow} />
           </article>
         {/if}
 
         {#if run.streaming}
           <Activity status={run.status} cancelling={run.cancelling} onCancel={() => void cancel()} />
-        {/if}
-
-        {#if run.usage}
-          <div class="usage num" data-testid="usage">
-            {i18n.formatNumber(run.usage.inputTokens)} ↑ &nbsp;{i18n.formatNumber(run.usage.outputTokens)} ↓ &nbsp;{i18n.formatNumber(run.usage.cacheReadTokens)} {i18n.t('cache')}
-          </div>
         {/if}
 
         {#if run.error}
@@ -360,6 +376,24 @@
           </div>
         </div>
         <div class="setting-row">
+          <span>{i18n.t('alwaysShowUsage')}</span>
+          <button
+            class="connections-button"
+            data-testid="toggle-always-usage"
+            aria-pressed={usageSettings.alwaysShow}
+            onclick={() => usageSettings.toggle()}
+          >{usageSettings.alwaysShow ? i18n.t('enabled') : i18n.t('disabled')}</button>
+        </div>
+        <div class="setting-row">
+          <span>{i18n.t('diagnostics')}</span>
+          <button
+            class="connections-button"
+            data-testid="open-diagnostics"
+            onclick={() => (showDiagnostics = !showDiagnostics)}
+          >{showDiagnostics ? i18n.t('close') : i18n.t('open')}</button>
+        </div>
+        {#if showDiagnostics}<Diagnostics />{/if}
+        <div class="setting-row">
           <span>Provider connections</span>
           <button
             class="connections-button"
@@ -398,12 +432,11 @@
   }
   .inline-edit button, .search-form button { padding: 8px 14px; border-radius: 6px; background: var(--raise); color: var(--text); }
   .thread { flex: 1; overflow-y: auto; padding: 24px; }
-  .message { max-width: 760px; margin: 0 0 20px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  .message { position: relative; max-width: 760px; margin: 0 0 20px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
   .message.user { margin-left: auto; background: var(--raise); }
   .message.streaming { border-color: var(--flow); }
   .role { margin-bottom: 6px; color: var(--mute); font-size: 12px; }
   .message p { white-space: pre-wrap; line-height: 1.6; }
-  .usage { margin: -8px 0 16px; color: var(--mute); font-size: 12px; }
   .error { color: var(--attn); }
   .panel > :global(form.composer) { margin: 0 24px 24px; }
   .view { flex: 1; overflow-y: auto; padding: 24px; max-width: 760px; width: 100%; margin: 0 auto; }

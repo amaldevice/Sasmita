@@ -1,4 +1,5 @@
 import { answerFromSnapshot } from './activity';
+import { usageFromEvent, type UsageData } from './usage';
 import type { RunEvent, RunSnapshot } from './types';
 
 /**
@@ -14,7 +15,8 @@ export class ChatRun {
   seq = $state(0);
   error = $state('');
   deltaCount = $state(0);
-  usage = $state<{ inputTokens: number; outputTokens: number; cacheReadTokens: number } | null>(null);
+  usage = $state<UsageData | null>(null);
+  private startedAt = 0;
 
   setRunId(id: string): void {
     this.runId = id;
@@ -29,6 +31,7 @@ export class ChatRun {
     this.error = '';
     this.deltaCount = 0;
     this.usage = null;
+    this.startedAt = 0;
   }
 
   /** Rebuild stream-derived UI state from GetRunSnapshot after reconnect. */
@@ -50,11 +53,11 @@ export class ChatRun {
       version?: number;
       text?: string;
       message?: string;
-      usage?: { inputTokens: number; outputTokens: number; cacheReadTokens: number };
     };
     switch (event.type) {
       case 'run.queued':
         this.status = 'queued';
+        if (!this.startedAt) this.startedAt = Date.parse(event.timestamp);
         break;
       case 'run.preparing':
         this.status = 'preparing';
@@ -62,6 +65,7 @@ export class ChatRun {
       case 'run.started':
         this.status = 'running';
         this.streaming = true;
+        if (!this.startedAt) this.startedAt = Date.parse(event.timestamp);
         break;
       case 'run.cancelling':
         this.status = 'cancelling';
@@ -79,9 +83,16 @@ export class ChatRun {
         this.answer += payload.text ?? '';
         this.deltaCount += 1;
         break;
-      case 'model.usage':
-        if (payload.usage) this.usage = payload.usage;
+      case 'model.usage': {
+        const usage = usageFromEvent(event);
+        if (usage) {
+          usage.durationMs = this.startedAt
+            ? Math.max(0, Date.parse(event.timestamp) - this.startedAt)
+            : 0;
+          this.usage = usage;
+        }
         break;
+      }
       case 'run.completed':
         this.status = 'completed';
         this.streaming = false;
