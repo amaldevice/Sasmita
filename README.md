@@ -1,32 +1,46 @@
 # Sasmita
 
-**Local-first** workspace AI desktop untuk macOS Apple Silicon. Percakapan,
-jawaban visual, dan tool agent berjalan dalam bahasa Indonesia atau Inggris.
-Riwayat, artifact, dan pengaturan tetap di komputer kamu; provider dipilih
-sendiri.
+Sasmita is a local-first AI workspace for macOS. Ask a question and get an interactive visual with the explanation underneath. Conversations, artifacts, and settings stay on your Mac; you choose the model provider.
 
-Status: **early preview**. Rilis dan catatan terbaru ada di
-[GitHub Releases](https://github.com/amaldevice/Sasmita/releases/latest).
+The current build is an early preview published on [GitHub Releases](https://github.com/amaldevice/Sasmita/releases/latest).
 
-## Pasang
+## Features
 
-Unduh DMG dari [Releases](https://github.com/amaldevice/Sasmita/releases/latest).
-Rilis ditandai *pre-release* dan app ditandatangani ad-hoc.
+- **Visual-first answers.** Concept and process questions produce an interactive UI block or sandboxed artifact first, followed by a written explanation. Simple questions stay as text.
+- **Provider of your choice.** Connect any OpenAI-compatible or Anthropic-compatible endpoint, or a local server such as Ollama or llama.cpp. Model capabilities are shown per profile, and switching providers preserves the conversation.
+- **Local-first by design.** History, projects, and artifacts remain on your device. API keys go to the macOS Keychain, never to the app database or frontend state.
+- **Transparent agent actions.** Risky tool calls pause for approval, and an expandable timeline distinguishes proposed actions from executed ones.
+- **Built for long sessions.** Automatic compaction near the context limit, conversation search, projects, and restart recovery keep work in progress.
+- **Cost visibility.** Per-answer token counts, cache-hit rate, and estimated cost, with diagnostics aggregated by model and day.
+- **Indonesian and English.** Full UI in both languages, dark theme by default, light theme available, and reduced-motion support.
 
-1. Buka DMG, pindahkan `Sasmita.app` ke **Applications**.
-2. Klik kanan → **Open** → **Open** sekali saat pertama kali. Selesai ketika
-   layar welcome muncul.
-3. Jika macOS menolak:
-   `xattr -dr com.apple.quarantine /Applications/Sasmita.app`
-4. Opsional: `shasum -a 256 ~/Downloads/*.dmg`, lalu cocokkan dengan
-   `SHA256SUMS.txt` di halaman rilis.
+## Requirements
 
-Pembaruan dilakukan manual dari halaman Releases.
+- macOS 12 or later on Apple Silicon
+- An OpenAI-compatible or Anthropic-compatible endpoint, or a local model server
+- No Sasmita account is required
 
-## Build dari sumber
+## Installation
 
-Butuh macOS 12+ (Apple Silicon), Go 1.27.3, Node.js 22+. Versi di-pin di
-`go.mod` dan `shell/mygo/go.mod`.
+1. Download the `.dmg` from [GitHub Releases](https://github.com/amaldevice/Sasmita/releases/latest).
+2. Open it and move `Sasmita.app` to **Applications**.
+3. Right-click `Sasmita.app`, choose **Open**, then **Open** again on first launch. The app is ad-hoc signed, so macOS asks once before running it.
+4. If macOS still blocks it: `xattr -dr com.apple.quarantine /Applications/Sasmita.app`
+5. Optional integrity check: `shasum -a 256 ~/Downloads/*.dmg`, compared with `SHA256SUMS.txt` on the release page.
+
+Installation is complete when the welcome screen appears. Updates are manual: download a newer DMG when a new version is published.
+
+## Quick start
+
+1. On the welcome screen, select a detected local server or choose **Use an API**.
+2. Enter the base URL and API key, then run **Test connection**. The key is stored in the macOS Keychain and is never shown again.
+3. Pick a Mode and model in the composer, attach a file if needed, and send your first message.
+4. Ask how something works to see the visual-first answer: an artifact or UI block appears before the explanation.
+
+<details>
+<summary>Build from source</summary>
+
+Requires macOS 12 or later (Apple Silicon), Go 1.27.3, and Node.js 22+. Versions are pinned in `go.mod` and `shell/mygo/go.mod`.
 
 ```sh
 git clone https://github.com/amaldevice/Sasmita.git
@@ -37,48 +51,25 @@ export PATH="$(go env GOPATH)/bin:$PATH"
 cd shell/mygo && mygo build
 ```
 
-Selesai ketika `build/darwin-arm64/` berisi `sasmita-*.dmg` dan `hdiutil verify`
-pada DMG itu mengembalikan `checksum VALID`. Catatan build teruji ada di
-[`docs/benchmarks/package-build-final.md`](docs/benchmarks/package-build-final.md).
+The build is complete when `build/darwin-arm64/` contains a `.dmg` and `hdiutil verify` reports `checksum VALID`. The commands used by CI are in `.github/workflows/ci.yml`; the tested build record is in `docs/benchmarks/package-build-final.md`.
 
-## Verifikasi perubahan
+</details>
 
-`package.json` adalah sumber perintah. Gate CI menjalankan ini pada setiap PR:
+## Privacy and data
 
-```sh
-npm run check
-npx playwright install --with-deps chromium
-npm run test:e2e
-go test -count=1 ./...
-GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build ./...
-```
+- SQLite database: `~/Library/Application Support/Sasmita/sasmita.db`, with artifacts stored alongside it. Set `SASMITA_DB_PATH` to move it.
+- API keys live in the macOS Keychain; only secret references are stored in SQLite.
+- Requests sent to a remote provider are marked in the interface. Risky tool calls require approval before execution.
+- Sandboxed artifacts run in an isolated frame with network access disabled by policy.
 
-Selesai ketika kelima perintah exit 0. Untuk bereksperimen dengan UI, jalankan
-`npm run dev`.
+## Scope
 
-## Data dan privasi
+Sasmita v1 covers core chat, the agent runtime, and visual answers. MCP, the Data Analyst Mode with spreadsheet and PDF parsing, long-form generation, Windows and Linux builds, auto-update, and Developer ID notarization are planned for later releases. Packaged-app checks for WKWebView isolation and memory targets are recorded in `docs/benchmarks/`.
 
-- SQLite: `~/Library/Application Support/Sasmita/sasmita.db`, artifact di
-  folder `artifacts/` di sebelahnya. Override dengan `SASMITA_DB_PATH`.
-- API key disimpan di macOS Keychain, bukan di SQLite atau frontend.
-- Permintaan ke provider remote ditandai di UI; tool berisiko meminta
-  persetujuan sebelum dijalankan.
+## Project documents
 
-## Cakupan rilis ini
+[Product](PRODUCT.md) · [Design](DESIGN.md) · [Technical design](SASMITA_TAD_v0.3.0.md) · [Decisions](docs/adr/) · [Contributor conventions](docs/agents/)
 
-- Tersedia: chat streaming, Mode Chat/Riset/Penulisan, adapter
-  OpenAI-compatible dan Anthropic-compatible, UI block, artifact sandbox,
-  approval, compaction, Bahasa Indonesia/Inggris, dark/light.
-- Dibutuhkan: endpoint OpenAI-compatible/Anthropic-compatible atau model lokal.
-- Tahap berikutnya: MCP, Analis Data untuk Excel/CSV/PDF, long-form,
-  Windows/Linux, auto-update. Lihat [TAD §22](SASMITA_TAD_v0.3.0.md).
-- Isolasi artifact di WKWebView dan target memori masih checklist manual pada
-  packaged app; buktinya di [`docs/benchmarks/`](docs/benchmarks/).
+## License
 
-## Peta dokumen
-
-- `PRODUCT.md` — tujuan, pengguna, prinsip. Baca saat memutuskan apa yang pantas dibangun.
-- `SASMITA_TAD_v0.3.0.md` dan `docs/adr/` — desain dan alasan keputusan. Baca saat mengubah arsitektur.
-- `docs/agents/` — konvensi issue, triage, domain. Baca saat berkontribusi atau menjalankan agent.
-- `THIRD_PARTY_NOTICES.md` — lisensi dependency. Baca saat meninjau kewajiban distribusi.
-- `LICENSE` — MIT untuk kode Sasmita.
+MIT — see [LICENSE](LICENSE). Third-party dependencies and their licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
