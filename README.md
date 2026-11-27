@@ -6,13 +6,13 @@ The current build is an early preview published on [GitHub Releases](https://git
 
 ## Features
 
-- **Visual-first answers.** Concept and process questions produce an interactive UI block or sandboxed artifact first, followed by a written explanation. Simple questions stay as text.
-- **Provider of your choice.** Connect any OpenAI-compatible or Anthropic-compatible endpoint, or a local server such as Ollama or llama.cpp. Model capabilities are shown per profile, and switching providers preserves the conversation.
-- **Local-first by design.** History, projects, and artifacts remain on your device. API keys go to the macOS Keychain, never to the app database or frontend state.
-- **Transparent agent actions.** Risky tool calls pause for approval, and an expandable timeline distinguishes proposed actions from executed ones.
-- **Built for long sessions.** Automatic compaction near the context limit, conversation search, projects, and restart recovery keep work in progress.
-- **Cost visibility.** Per-answer token counts, cache-hit rate, and estimated cost, with diagnostics aggregated by model and day.
-- **Indonesian and English.** Full UI in both languages, dark theme by default, light theme available, and reduced-motion support.
+- **Visual-first answers.** Interactive UI blocks and sandboxed artifacts appear before the written explanation.
+- **Your provider, your data.** OpenAI-compatible, Anthropic-compatible, or local endpoints; conversation history and artifacts stay on your Mac.
+- **Agent with approvals.** Bounded built-in tools, an expandable activity timeline, and approvals before risky actions.
+- **Long-session workflow.** Conversation search, projects, compaction, restart recovery, and visible token/cache/cost figures.
+- **Bilingual interface.** Full Indonesian and English copy, dark and light themes, and reduced-motion support.
+
+The complete current inventory — tools, Modes, artifact lifecycle, and verification status — is in [FEATURE.md](FEATURE.md).
 
 ## Requirements
 
@@ -68,7 +68,7 @@ Sasmita v1 covers core chat, the agent runtime, and visual answers. MCP, the Dat
 
 ## Project documents
 
-[Product](PRODUCT.md) · [Design](DESIGN.md) · [Technical design](SASMITA_TAD_v0.3.0.md) · [Decisions](docs/adr/) · [Contributor conventions](docs/agents/)
+[Features](FEATURE.md) · [Product](PRODUCT.md) · [Design](DESIGN.md) · [Technical design](SASMITA_TAD_v0.3.0.md) · [Decisions](docs/adr/) · [Contributor conventions](docs/agents/)
 
 ## License
 
