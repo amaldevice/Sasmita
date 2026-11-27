@@ -116,7 +116,7 @@ Gate definitions live in [spike-plan.md](spike-plan.md); automated coverage is s
 | Decision | Recorded when |
 |---|---|
 | Default provider for users without an API key | An ADR records the chosen default or the explicit bring-your-own policy |
-| Web search provider | An ADR records the provider and its egress disclosure |
+| Web search provider | Recorded in [ADR-0006](adr/0006-web-search-fallback-chain.md): TinySearch → Tavily → Exa → Parallel, BYOK keys in Keychain, explicit egress label, and a degraded answer on total failure |
 | PDF/DOCX/XLSX parsing library | An ADR records the library and its licence/distribution impact |
 | `run_script` threshold per model | S3 defines the threshold and the enablement policy |
 | "Limited support" model marking | Models failing S3 lose meta-tools and visual-first in the UI |
