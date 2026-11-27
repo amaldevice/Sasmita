@@ -1,0 +1,7 @@
+[
+  { "id": "chat", "name": "Chat", "instructions": "", "toolsetIds": [], "skillIds": [], "workspace": "none", "permissionProfile": "read-only", "contextPolicy": "full-history", "available": true, "phase": 1 },
+  { "id": "riset", "name": "Riset", "instructions": "Research the question carefully. Prefer verifiable sources and cite them with the answer.", "toolsetIds": [], "skillIds": [], "workspace": "none", "permissionProfile": "read-only", "contextPolicy": "full-history", "available": true, "phase": 2 },
+  { "id": "penulisan", "name": "Penulisan", "instructions": "Draft and revise text with a clear outline. Keep sections distinct and avoid repetition.", "toolsetIds": [], "skillIds": [], "workspace": "none", "permissionProfile": "read-only", "contextPolicy": "full-history", "available": true, "phase": 3 },
+  { "id": "analis-data", "name": "Analis Data", "instructions": "Analyse tabular data with bounded queries and report the method used.", "toolsetIds": [], "skillIds": [], "workspace": "attached", "permissionProfile": "data-worker", "contextPolicy": "full-history", "available": false, "phase": 4 },
+  { "id": "coding", "name": "Coding", "instructions": "Work in the project workspace. Run tests and explain changes before editing files.", "toolsetIds": ["file_read", "shell"], "skillIds": [], "workspace": "project", "permissionProfile": "sandboxed-shell", "contextPolicy": "full-history", "available": false, "phase": 5 }
+]

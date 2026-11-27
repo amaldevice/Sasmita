@@ -23,3 +23,13 @@ _Avoid_: CDN, dependencies
 
 **Compaction**: Penggantian bagian lama canonical history di active context dengan ringkasan terstruktur, dipicu saat mendekati batas budget.
 _Avoid_: truncation, sliding window
+
+**Approval**: Persetujuan pengguna untuk satu panggilan tool berisiko. Terikat pada hash argumen yang persis dan snapshot policy; mengubah argumen membatalkannya. Bukan izin umum untuk tool tersebut.
+_Avoid_: permission, izin tool selamanya
+
+**Policy snapshot**: Versi dari aturan policy (TAD §15.3) yang disimpan bersama approval. Perubahan policy membuat approval dan grant lama tidak berlaku.
+_Avoid_: config, setting
+
+**Checkpoint**: Rekaman state run di SQLite saat run dijeda menunggu approval. Memungkinkan run dilanjutkan setelah aplikasi dimulai ulang tanpa meminta persetujuan yang sama dua kali.
+_Avoid_: cache, session
+

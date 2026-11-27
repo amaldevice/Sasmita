@@ -1,0 +1,78 @@
+[
+  {
+    "runId": "RUN_ID",
+    "seq": 1,
+    "type": "run.queued",
+    "timestamp": "2026-11-26T11:00:00.000Z",
+    "payload": { "version": 1, "status": "queued" }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 2,
+    "type": "run.started",
+    "timestamp": "2026-11-26T11:00:00.010Z",
+    "payload": { "version": 1, "status": "running" }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 3,
+    "type": "tool.proposed",
+    "timestamp": "2026-11-26T11:00:01.000Z",
+    "payload": {
+      "version": 1,
+      "callId": "write-1",
+      "name": "write_artifact",
+      "risk": "write",
+      "input": { "name": "chart", "content": "x", "overwrite": true },
+      "executed": false,
+      "status": "proposed"
+    }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 4,
+    "type": "tool.approval_required",
+    "timestamp": "2026-11-26T11:00:01.100Z",
+    "payload": {
+      "version": 1,
+      "approvalId": "apr-1",
+      "callId": "write-1",
+      "toolId": "write_artifact",
+      "status": "awaiting_approval",
+      "action": "Menimpa artifact",
+      "resource": "chart",
+      "impact": "Isi lama akan diganti; berikan persetujuan hanya jika itu yang diinginkan.",
+      "message": "Menimpa artifact — Isi lama akan diganti.",
+      "arguments": "{\"name\":\"chart\",\"content\":\"x\",\"overwrite\":true}",
+      "argsHash": "fixture-args-hash",
+      "policyHash": "fixture-policy-hash"
+    }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 5,
+    "type": "tool.executed",
+    "timestamp": "2026-11-26T11:00:02.000Z",
+    "payload": {
+      "version": 1,
+      "callId": "write-1",
+      "name": "write_artifact",
+      "executed": true,
+      "status": "executed"
+    }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 6,
+    "type": "model.text_delta",
+    "timestamp": "2026-11-26T11:00:02.500Z",
+    "payload": { "version": 1, "text": "Selesai." }
+  },
+  {
+    "runId": "RUN_ID",
+    "seq": 7,
+    "type": "run.completed",
+    "timestamp": "2026-11-26T11:00:03.000Z",
+    "payload": { "version": 1, "status": "completed" }
+  }
+]

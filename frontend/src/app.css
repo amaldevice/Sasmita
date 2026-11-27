@@ -1,0 +1,70 @@
+/* Design tokens from DESIGN.md. Dark is the default; light reuses the same
+   token names with the light column's values. */
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --ground: #141414;
+  --bg: #1c1c1c;
+  --side: #1c1c1c;
+  --surface: #242424;
+  --raise: #2b2b2b;
+  --line: #333331;
+  --text: #ededeb;
+  --mute: #9a9994;
+  --accent: #7aa7ff;
+  --flow: #7aa7ff;
+  --attn: #f08a4b;
+  --ok: #4ade80;
+  --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --ground: #edece8;
+  --bg: #fbfbfa;
+  --side: #fbfbfa;
+  --surface: #ffffff;
+  --raise: #f1f0ec;
+  --line: #e3e1db;
+  --text: #1b1b1a;
+  --mute: #67665f;
+  --accent: #2457d6;
+  --flow: #2457d6;
+  --attn: #c2410c;
+  --ok: #15803d;
+}
+
+* { box-sizing: border-box; }
+html, body, #app { height: 100%; margin: 0; }
+body {
+  background: var(--ground);
+  color: var(--text);
+  font: 16.5px/1.6 -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+/* WebKit gives every button an opaque native bevel unless it is reset. The
+   component styles decide the background; this is only the neutral base. */
+button {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { background: var(--raise); }
+button:disabled { color: var(--mute); cursor: default; }
+select { font: inherit; }
+input, textarea { color-scheme: inherit; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+* { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+p, li { text-wrap: pretty; }
+
+/* Reduced motion jumps straight to the end state; no tweening at all. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
