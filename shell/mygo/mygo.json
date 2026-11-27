@@ -1,6 +1,7 @@
 {
   "name": "Sasmita",
   "identifier": "dev.sasmita.app",
+  "icon": "resources/icon.png",
   "version": "0.1.0",
   "devUrl": "http://127.0.0.1:5173",
   "devCommand": "npm --prefix ../.. run dev",
