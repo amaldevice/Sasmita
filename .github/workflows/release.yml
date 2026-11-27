@@ -10,8 +10,8 @@ permissions:
 
 jobs:
   release:
-    # macos-14 is the arm64 (Apple Silicon) hosted runner.
-    runs-on: macos-14
+    # macos-15 is the arm64 (Apple Silicon) hosted runner.
+    runs-on: macos-15
     env:
       GOTOOLCHAIN: local
     steps:
