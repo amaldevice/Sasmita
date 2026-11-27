@@ -51,7 +51,12 @@
   data-instant={instant ? 'true' : undefined}
 >
   <div class="brand-row">
-    {#if !collapsed}<span class="brand">Sasmita</span>{/if}
+    {#if !collapsed}
+      <div class="brand-group">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand">Sasmita</span>
+      </div>
+    {/if}
     <button
       class="icon-button"
       data-testid="collapse-button"
@@ -59,7 +64,11 @@
       title={collapsed ? i18n.t('expand') : i18n.t('collapse')}
       onclick={() => (collapsed = !collapsed)}
     >
-      <Icon name="chevron" size={16} />
+      {#if collapsed}
+        <span class="brand-mark rail-mark" aria-hidden="true"></span>
+      {:else}
+        <Icon name="chevron" size={16} />
+      {/if}
     </button>
   </div>
 
@@ -130,7 +139,17 @@
     padding: 2px 8px 16px;
   }
   .collapsed .brand-row { justify-content: center; padding: 2px 0 16px; }
+  .brand-group { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .brand { font-size: 18px; font-weight: 700; white-space: nowrap; }
+  .brand-mark {
+    width: 18px;
+    height: 25px;
+    flex: none;
+    background: var(--text);
+    -webkit-mask: url('/sasmita-mark.png') center / contain no-repeat;
+    mask: url('/sasmita-mark.png') center / contain no-repeat;
+  }
+  .rail-mark { width: 20px; height: 28px; }
   .icon-button {
     display: grid;
     place-items: center;
