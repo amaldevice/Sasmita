@@ -1,6 +1,7 @@
 <script lang="ts">
   import ArtifactFrame from './ArtifactFrame.svelte';
   import { pendingArtifact, type ArtifactRecord } from './artifacts';
+  import { i18n } from './i18n.svelte';
 
   interface Props {
     artifacts: ArtifactRecord[];
@@ -17,7 +18,7 @@
 </script>
 
 <section class="library" data-testid="artifacts-library">
-  <h2>Sandboxed artifacts</h2>
+  <h2>{i18n.t('sandboxedArtifacts')}</h2>
   <div class="list">
     {#each artifacts as artifact (artifact.id)}
       <button
@@ -28,12 +29,12 @@
       >
         <span class="title">{artifact.title}</span>
         <span class="num" data-testid="artifact-ref">{artifact.ref}</span>
-        <span class="num" data-testid="artifact-versions">{artifact.versions.length} versi / versions</span>
+        <span class="num" data-testid="artifact-versions">{artifact.versions.length} {i18n.t('versions')}</span>
         <span class="num" data-testid="artifact-runtime">{artifact.runtimeVersion}</span>
       </button>
     {/each}
     {#if artifacts.length === 0}
-      <p class="empty-note" data-testid="artifacts-empty">Belum ada artifact / No artifacts yet</p>
+      <p class="empty-note" data-testid="artifacts-empty">{i18n.t('noArtifacts')}</p>
     {/if}
   </div>
 
@@ -51,7 +52,7 @@
 
   {#if pendingSource}
     <div class="detail pending" data-testid="artifact-streaming">
-      <h3>Sedang ditulis / Being written</h3>
+      <h3>{i18n.t('writingArtifact')}</h3>
       <ArtifactFrame artifact={pendingArtifact} source={pendingSource} {data} {onSuggestPrompt} />
     </div>
   {/if}

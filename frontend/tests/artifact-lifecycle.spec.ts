@@ -41,7 +41,7 @@ test('off-screen artifacts save state, lose the iframe and show a Run card', asy
   await parked.getByTestId('artifact-run').click();
   const relaunched = root.locator('[data-testid="lifecycle-live"][data-block="webgl-a"]');
   await expect(relaunched).toBeVisible();
-  await expect(relaunched).toContainText('state restored');
+  await expect(relaunched).toContainText(/state (restored|dipulihkan)/i);
 });
 
 test('reopening a conversation reallocates only visible artifacts', async ({ page }) => {

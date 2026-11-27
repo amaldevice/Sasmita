@@ -25,15 +25,15 @@
 </div>
 
 <style>
-  .empty { max-width: 760px; margin: 10vh auto 0; }
+  .empty { max-width: 760px; margin: clamp(16px, 4vh, 40px) auto 0; }
   h2 { margin: 0; font-size: 28px; font-weight: 600; line-height: 1.3; }
   p { margin: 8px 0 0; color: var(--mute); }
-  .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 28px; }
+  .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 18px; }
   .card {
     display: grid;
     align-content: start;
     gap: 6px;
-    min-height: 96px;
+    min-height: 84px;
     padding: 16px;
     border: 1px solid var(--line);
     border-radius: 10px;

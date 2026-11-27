@@ -8,6 +8,7 @@
     type ProviderKind,
     type ProviderProfile,
   } from './connections';
+  import { i18n } from './i18n.svelte';
 
   let { onClose }: { onClose: () => void } = $props();
 
@@ -47,7 +48,7 @@
   async function save() {
     error = '';
     if (!name.trim() || !baseUrl.trim() || !apiKey) {
-      error = 'Isi nama, base URL, dan kunci API.';
+      error = i18n.t('fillRequired');
       return;
     }
     try {
@@ -80,13 +81,13 @@
 
 <section class="settings" data-testid="connections-panel" aria-label="Koneksi provider">
   <header>
-    <h2>Koneksi</h2>
-    <button type="button" onclick={onClose} aria-label="Tutup koneksi">Tutup</button>
+    <h2>{i18n.t('connections')}</h2>
+    <button type="button" onclick={onClose} aria-label={i18n.t('closeConnections')}>{i18n.t('close')}</button>
   </header>
 
   <div class="columns">
     <div>
-      <h3>Profil</h3>
+      <h3>{i18n.t('profiles')}</h3>
       {#each profiles as profile (profile.id)}
         <div class="profile" data-testid="profile-row">
           <button
@@ -99,33 +100,33 @@
             {profile.displayName}
             <small>{profile.kind}</small>
           </button>
-          <button type="button" class="remove" onclick={() => void remove(profile.id)} aria-label={`Hapus ${profile.displayName}`}>
-            Hapus
+          <button type="button" class="remove" onclick={() => void remove(profile.id)} aria-label={`${i18n.t('remove')} ${profile.displayName}`}>
+            {i18n.t('remove')}
           </button>
         </div>
       {/each}
 
-      <h3>Tambah profil</h3>
-      <label for="profile-name">Nama</label>
+      <h3>{i18n.t('addProfile')}</h3>
+      <label for="profile-name">{i18n.t('name')}</label>
       <input id="profile-name" data-testid="profile-name" bind:value={name} />
-      <label for="profile-kind">Jenis</label>
+      <label for="profile-kind">{i18n.t('kind')}</label>
       <select id="profile-kind" bind:value={kind}>
         <option value="anthropic-compatible">Anthropic-compatible</option>
         <option value="openai-compatible">OpenAI-compatible</option>
       </select>
       <label for="profile-base-url">Base URL</label>
       <input id="profile-base-url" data-testid="profile-base-url" bind:value={baseUrl} />
-      <label for="profile-api-key">Kunci API</label>
+      <label for="profile-api-key">{i18n.t('apiKey')}</label>
       <input id="profile-api-key" data-testid="profile-api-key" type="password" bind:value={apiKey} />
-      <button type="button" data-testid="save-profile" onclick={() => void save()}>Simpan profil</button>
+      <button type="button" data-testid="save-profile" onclick={() => void save()}>{i18n.t('saveProfile')}</button>
       {#if error}<p class="form-error">{error}</p>{/if}
     </div>
 
     <div>
-      <h3>Model</h3>
+      <h3>{i18n.t('models')}</h3>
       <div class="actions">
-        <button type="button" data-testid="test-connection" onclick={() => void testConnection()}>Uji koneksi</button>
-        <button type="button" data-testid="load-models" onclick={() => void loadModels()}>Muat model</button>
+        <button type="button" data-testid="test-connection" onclick={() => void testConnection()}>{i18n.t('testConnection')}</button>
+        <button type="button" data-testid="load-models" onclick={() => void loadModels()}>{i18n.t('loadModels')}</button>
       </div>
       {#if result}
         <p class:result-ok={result.ok} class:result-bad={!result.ok} data-testid="connection-result">{result.message}</p>

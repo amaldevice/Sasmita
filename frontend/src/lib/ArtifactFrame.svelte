@@ -7,6 +7,7 @@
     type ArtifactBridgeOptions,
   } from './ArtifactBridge';
   import type { ArtifactRecord } from './artifacts';
+  import { i18n } from './i18n.svelte';
 
   interface Props {
     artifact: ArtifactRecord;
@@ -62,9 +63,9 @@
 
   {#if !storedRef}
     <pre class="code" data-testid="artifact-code">{source}</pre>
-    <p class="note" data-testid="artifact-pending">Kode disimpan dulu sebelum dijalankan — stored before running</p>
+    <p class="note" data-testid="artifact-pending">{i18n.t('artifactPending')}</p>
     <button class="store" data-testid="artifact-store" onclick={() => (storedOverride = 'artifact://' + artifact.id)}>
-      Simpan & jalankan / Store & run
+      {i18n.t('storeAndRun')}
     </button>
   {/if}
 

@@ -42,3 +42,26 @@ test('profiles, unknown capabilities and plain-language connection results', asy
   await expect(page.getByTestId('profile-row')).toHaveCount(4);
   await expect(page.locator('body')).not.toContainText('secret-only-once');
 });
+
+/** Every connection label follows the selected locale — no ID leakage in EN. */
+test('connection panel is fully localized in English', async ({ page }) => {
+  await page.goto('/?fake=1');
+  await page.getByTestId('toggle-language').click(); // chat header owns the switch
+  await expect(page.getByTestId('toggle-language')).toHaveText('ID');
+  await page.getByTestId('nav-settings').click();
+  await page.getByTestId('open-connections').click();
+  const panel = page.getByTestId('connections-panel');
+  await expect(panel).toContainText('Connections');
+  await expect(panel).toContainText('Profiles');
+  await expect(panel).toContainText('Add profile');
+  await expect(panel).toContainText('Name');
+  await expect(panel).toContainText('Kind');
+  await expect(panel).toContainText('API key');
+  await expect(panel).toContainText('Save profile');
+  await expect(panel).toContainText('Test connection');
+  await expect(panel).toContainText('Load models');
+  await expect(panel).not.toContainText('Koneksi');
+  await expect(panel).not.toContainText('Tambah profil');
+  await expect(panel).not.toContainText('Kunci API');
+  await expect(panel).not.toContainText('Uji koneksi');
+});

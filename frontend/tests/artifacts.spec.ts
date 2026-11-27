@@ -52,7 +52,7 @@ test('library lists every artifact with its immutable versions and runtime', asy
   await openLibrary(page);
   await expect(page.getByTestId('artifact-row')).toHaveCount(2);
   await expect(page.getByTestId('artifact-ref').first()).toHaveText('artifact://abc123');
-  await expect(page.getByTestId('artifact-versions').first()).toContainText('2 versi / versions');
+  await expect(page.getByTestId('artifact-versions').first()).toContainText(/2 (versi|versions)/);
   await expect(page.getByTestId('artifact-runtime').first()).toHaveText('artifact-runtime/1');
   await expect(page.getByTestId('artifact-version-list').locator('li')).toHaveCount(2);
 });

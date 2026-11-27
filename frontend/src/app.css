@@ -2,6 +2,7 @@
    token names with the light column's values. */
 :root,
 :root[data-theme='dark'] {
+  color-scheme: dark;
   --ground: #141414;
   --bg: #1c1c1c;
   --side: #1c1c1c;
@@ -19,6 +20,7 @@
 }
 
 :root[data-theme='light'] {
+  color-scheme: light;
   --ground: #edece8;
   --bg: #fbfbfa;
   --side: #fbfbfa;
@@ -41,7 +43,22 @@ body {
   font: 16.5px/1.6 -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
-button { font: inherit; color: inherit; cursor: pointer; }
+/* WebKit gives every button an opaque native bevel unless it is reset. The
+   component styles decide the background; this is only the neutral base. */
+button {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { background: var(--raise); }
+button:disabled { color: var(--mute); cursor: default; }
+select { font: inherit; }
+input, textarea { color-scheme: inherit; }
 .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 * { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { displayValue, rowLabel, rowValue } from '../uiblocks';
+  import { i18n } from '../i18n.svelte';
 
   interface Props {
     label?: string;
@@ -18,7 +19,7 @@
       <span class="value num">{displayValue(rowValue(point))}</span>
     </div>
   {/each}
-  {#if points.length === 0}<p class="empty">Tidak ada titik data.</p>{/if}
+  {#if points.length === 0}<p class="empty">{i18n.t('noDataPoints')}</p>{/if}
 </div>
 
 <style>

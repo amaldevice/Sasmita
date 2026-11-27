@@ -112,43 +112,56 @@
     return !!project && project.rootUri !== '';
   });
 
+  // One failed IPC call must not blank the first-run screen. Every read has a
+  // usable empty/placeholder fallback; the UI can recover on the next action.
+  async function safe<T>(call: () => Promise<T>, fallback: T): Promise<T> {
+    try {
+      return await call();
+    } catch (cause) {
+      console.error('Sasmita IPC call failed', cause);
+      return fallback;
+    }
+  }
+
   onMount(async () => {
-    ipc = createIPC();
+    const shell = createIPC();
+    ipc = shell;
     installArtifactNavigationGuard();
-    artifacts = await createArtifactIPC().listArtifacts();
-    modeIPC = createModeIPC(ipc);
+    artifacts = await safe(() => createArtifactIPC().listArtifacts(), []);
+    modeIPC = createModeIPC(shell);
     const onboarding = createOnboardingIPC();
     const connections = createConnectionIPC();
     connectionIPC = connections;
     const [recent, projectList, prompts, modeList, profilesFromOnboarding] = await Promise.all([
-      ipc.listRecentConversations('', 50),
-      ipc.listProjects(),
+      safe(() => shell.listRecentConversations('', 50), { items: [], nextCursor: '' }),
+      safe(() => shell.listProjects(), []),
       onboarding.listExamplePrompts(),
-      modeIPC.listModes(),
-      connections.listProfiles(),
+      safe(() => modeIPC!.listModes(), []),
+      safe(() => connections.listProfiles(), []),
     ]);
     examplePrompts = prompts;
     modes = modeList;
     profiles = profilesFromOnboarding;
     providerId = profiles[0]?.id ?? '';
     if (providerId) {
-      models = await connections.listModels(providerId);
+      models = await safe(() => connections.listModels(providerId), []);
       modelId = models[0]?.id ?? 'gpt-test';
     }
     showOnboarding = shouldShowOnboarding();
     conversations = recent.items;
     projects = projectList;
     if (conversations.length === 0) {
-      const created = await ipc.createConversation('p1', i18n.t('newTitle'), 'chat');
-      conversations = [created];
+      const created = await safe(() => shell.createConversation('p1', i18n.t('newTitle'), 'chat'), null);
+      if (created) conversations = [created];
     }
     const first = conversations[0];
+    if (!first) return;
     selectedId = first.id;
-    detail = await ipc.getConversation(first.id);
-    moveProject = detail.conversation.projectId;
+    detail = await safe(() => shell.getConversation(first.id), null);
+    if (detail) moveProject = detail.conversation.projectId;
     await refreshRuns();
     // A run that was waiting when the app closed still needs its card.
-    const pending = await ipc.listPendingApprovals(selectedId);
+    const pending = await safe(() => shell.listPendingApprovals(selectedId), []);
     if (pending.length > 0) {
       run.setRunId(pending[0].runId);
       run.approval = pending[0];
@@ -490,12 +503,13 @@
 
         <div class="reading-column" data-testid="reading-column" data-view={readingView} data-format={format}>
           <div class="format-bar" role="group" aria-label={i18n.t('readingFormat')}>
+            <span class="format-label">{i18n.t('readingFormat')}</span>
             <button data-testid="format-one" aria-pressed={format === 'one'} onclick={() => (format = 'one')}>{i18n.t('formatOne')}</button>
             <button data-testid="format-two-below" aria-pressed={format === 'twoBelow'} onclick={() => (format = 'twoBelow')}>{i18n.t('formatTwoBelow')}</button>
             <button data-testid="format-side-by-side" aria-pressed={format === 'sideBySide'} onclick={() => (format = 'sideBySide')}>{i18n.t('formatSideBySide')}</button>
           </div>
 
-          {#if detail?.messages.length === 0 && !run.answer}
+          {#if (!detail || detail.messages.length === 0) && !run.answer}
             <EmptyState prompts={examplePrompts} onsuggest={(text) => void send(text)} />
           {/if}
 
@@ -681,12 +695,12 @@
         </div>
         {#if showDiagnostics}<Diagnostics />{/if}
         <div class="setting-row">
-          <span>Provider connections</span>
+          <span>{i18n.t('providerConnections')}</span>
           <button
             class="connections-button"
             data-testid="open-connections"
             onclick={() => (showConnections = !showConnections)}
-          >{showConnections ? i18n.t('cancel') : 'Koneksi'}</button>
+          >{showConnections ? i18n.t('close') : i18n.t('connections')}</button>
         </div>
         {#if showConnections}<Connections onClose={() => (showConnections = false)} />{/if}
       </section>
@@ -731,11 +745,11 @@
 <style>
   .shell { display: flex; gap: 8px; height: 100vh; padding: 8px; background: var(--ground); }
   .panel { display: flex; flex: 1; min-width: 0; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); overflow: hidden; }
-  header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 24px; border-bottom: 1px solid var(--line); }
-  .title-block { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+  header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; padding: 14px 24px; border-bottom: 1px solid var(--line); }
+  .title-block { display: flex; align-items: baseline; gap: 12px; flex: 1 1 160px; min-width: 0; }
   h1 { margin: 0; font-size: 20px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mode { color: var(--mute); font-size: 13px; white-space: nowrap; }
-  .actions { display: flex; align-items: center; gap: 4px; flex: none; }
+  .actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px; }
   .text-button, .icon-button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border-radius: 6px; color: var(--mute); font-size: 13px; }
   .icon-button { padding: 7px; }
   .icon-button.lang { font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; }
@@ -770,14 +784,15 @@
   .compaction-note { margin: 8px 0 16px; color: var(--mute); font-size: 13px; }
   .project-row, .setting-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--line); }
   .project-row .num { color: var(--mute); font-size: 13px; }
-  .segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
-  .segmented button { padding: 7px 12px; color: var(--mute); }
+  .segmented { display: inline-flex; flex: none; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .segmented button { padding: 7px 12px; color: var(--mute); white-space: nowrap; }
   .segmented button.active { background: var(--raise); color: var(--text); }
   .view-switch button { font-size: 13px; }
   .view-switch button[aria-pressed='true'] { background: var(--raise); color: var(--text); }
   .reading-column { width: 100%; max-width: 760px; margin: 0 auto; }
   .reading-column[data-view='baca'] { max-width: 1040px; }
-  .format-bar { display: flex; gap: 4px; margin-bottom: 16px; }
+  .format-bar { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-bottom: 16px; }
+  .format-label { margin-right: 4px; color: var(--mute); font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
   .format-bar button { padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--mute); font-size: 13px; }
   .format-bar button[aria-pressed='true'] { background: var(--raise); color: var(--text); }
   .answer-group { display: grid; grid-template-columns: 1fr; gap: 14px; margin-bottom: 20px; }

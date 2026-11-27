@@ -1,5 +1,6 @@
 <script lang="ts">
   import { displayValue } from '../uiblocks';
+  import { i18n } from '../i18n.svelte';
 
   interface Props {
     label?: string;
@@ -25,7 +26,7 @@
       {/each}
     </tbody>
   </table>
-  {#if rows.length === 0}<p class="empty">Tidak ada baris data.</p>{/if}
+  {#if rows.length === 0}<p class="empty">{i18n.t('noDataRows')}</p>{/if}
 </div>
 
 <style>

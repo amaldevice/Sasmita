@@ -6,7 +6,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log"
 	"os"
 	"path/filepath"
@@ -17,6 +16,7 @@ import (
 	"github.com/amaldevice/sasmita/internal/desktop"
 	"github.com/amaldevice/sasmita/internal/domain"
 	"github.com/amaldevice/sasmita/internal/model"
+	"github.com/amaldevice/sasmita/internal/model/adapters"
 	"github.com/amaldevice/sasmita/internal/model/adapters/openai"
 	"github.com/amaldevice/sasmita/internal/persistence/migrations"
 	"github.com/amaldevice/sasmita/internal/persistence/repositories"
@@ -206,6 +206,19 @@ func appConfig(provider model.ModelProvider, modelRef, artifactsDir string, arti
 	}
 }
 
+// defaultProvider is the shell's fallback adapter. Without a configured base
+// URL it is inert; a run with a profile ID resolves its own adapter instead.
+func defaultProvider(baseURL string) model.ModelProvider {
+	if baseURL == "" {
+		return adapters.Unconfigured{}
+	}
+	return openai.Adapter{
+		BaseURL:    baseURL,
+		APIKey:     os.Getenv("SASMITA_OPENAI_API_KEY"),
+		ProviderID: "openai",
+	}
+}
+
 func setup(shell *shellService) error {
 	dbPath := os.Getenv("SASMITA_DB_PATH")
 	if dbPath == "" {
@@ -241,17 +254,15 @@ func setup(shell *shellService) error {
 	})
 
 	baseURL := os.Getenv("SASMITA_OPENAI_BASE_URL")
+	adapter := defaultProvider(baseURL)
 	if baseURL == "" {
-		return errors.New("SASMITA_OPENAI_BASE_URL is required")
+		// A fresh install has no provider yet. Keep the shell alive so
+		// onboarding/Settings can add a profile; runs fail closed until then.
+		log.Printf("No SASMITA_OPENAI_BASE_URL set; waiting for a provider profile from the UI.")
 	}
 	modelRef := os.Getenv("SASMITA_MODEL")
 	if modelRef == "" {
 		modelRef = "gpt-4o-mini"
-	}
-	adapter := openai.Adapter{
-		BaseURL:    baseURL,
-		APIKey:     os.Getenv("SASMITA_OPENAI_API_KEY"),
-		ProviderID: "openai",
 	}
 	artifactsDir := filepath.Join(os.TempDir(), "sasmita-artifacts")
 	app := appsvc.New(store, appConfig(adapter, modelRef, artifactsDir, artifactService))
@@ -280,7 +291,10 @@ func main() {
 			log.Printf("Sasmita setup failed: %v", err)
 			return
 		}
-		win := mygo.NewWindow(mygo.WindowOptions{Title: "Sasmita", URL: "/"})
+		win := mygo.NewWindow(mygo.WindowOptions{
+			Title: "Sasmita", URL: "/",
+			Width: 1280, Height: 860, MinWidth: 900, MinHeight: 620,
+		})
 		shell.notifier = mygoNotifier{window: win}
 		// MyGo v0.10 treats custom schemes as trusted in the main frame.
 		// NavigateEvent has no frame flag; iframe loads of artifact:// are not

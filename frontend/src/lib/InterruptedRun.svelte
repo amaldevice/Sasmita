@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { i18n } from './i18n.svelte';
   import type { RunRecord } from './types';
 
   interface Props {
@@ -11,10 +12,10 @@
 
 <div class="interrupted" data-testid="interrupted-run">
   <div>
-    <strong>Run terhenti saat aplikasi ditutup.</strong>
-    <span>Anda dapat melanjutkan jawaban ini.</span>
+    <strong>{i18n.t('interruptedRunTitle')}</strong>
+    <span>{i18n.t('interruptedRunBody')}</span>
   </div>
-  <button type="button" data-testid="continue-run" onclick={onContinue}>Lanjutkan</button>
+  <button type="button" data-testid="continue-run" onclick={onContinue}>{i18n.t('continue')}</button>
 </div>
 
 <style>

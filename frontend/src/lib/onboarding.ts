@@ -31,8 +31,15 @@ const bindings = {
 };
 
 export class MyGoOnboardingIPC implements OnboardingIPC {
-  listExamplePrompts(): Promise<ExamplePrompt[]> {
-    return bindings.listExamplePrompts();
+  async listExamplePrompts(): Promise<ExamplePrompt[]> {
+    try {
+      const prompts = await bindings.listExamplePrompts();
+      if (prompts?.length) return prompts;
+    } catch {
+      // A first-run shell may answer before the binding is ready. The catalog
+      // is declarative data, so the UI can still show the examples.
+    }
+    return structuredClone(fallbackPrompts);
   }
 
   detectLocalEndpoints(): Promise<LocalEndpoint[]> {
@@ -42,7 +49,7 @@ export class MyGoOnboardingIPC implements OnboardingIPC {
 
 // Fake fixtures mirror the Go catalog. Only the fake's probe is controllable;
 // no browser test opens a socket to a local port.
-const fakePrompts: ExamplePrompt[] = [
+const fallbackPrompts: ExamplePrompt[] = [
   {
     id: 'training-flow',
     prompt: 'Jelaskan alur training neural network dengan diagram',
@@ -94,7 +101,7 @@ const fakeEndpoints: LocalEndpoint[] = [
 
 export class FakeOnboardingIPC implements OnboardingIPC {
   async listExamplePrompts(): Promise<ExamplePrompt[]> {
-    return structuredClone(fakePrompts);
+    return structuredClone(fallbackPrompts);
   }
 
   async detectLocalEndpoints(): Promise<LocalEndpoint[]> {

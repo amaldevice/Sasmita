@@ -90,7 +90,7 @@
           <span class="num">v{block.version}{block.webgl ? ' · WebGL' : ''}</span>
           <button data-testid="lifecycle-offscreen" onclick={() => offscreen(block)}>{i18n.t('offscreen')}</button>
         </header>
-        {#if restored[block.id]}<p class="restored" data-testid="artifact-restored">state restored</p>{/if}
+        {#if restored[block.id]}<p class="restored" data-testid="artifact-restored">{i18n.t('stateRestored')}</p>{/if}
         <iframe
           data-testid="lifecycle-iframe"
           title="Sandboxed artifact {block.id}"
@@ -105,7 +105,7 @@
           <span class="num">v{block.version}</span>
         </header>
         <p class="summary">{block.summary}</p>
-        {#if restored[block.id]}<p class="restored" data-testid="artifact-restored">state restored</p>{/if}
+        {#if restored[block.id]}<p class="restored" data-testid="artifact-restored">{i18n.t('stateRestored')}</p>{/if}
         {#if block.view === 'parked'}
           <button data-testid="artifact-run" onclick={() => run(block)}>{i18n.t('runArtifact')}</button>
         {:else if block.view === 'slots_full'}

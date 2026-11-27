@@ -2,6 +2,7 @@
   import { onDestroy, untrack } from 'svelte';
   import type { UIData, UIBlock } from '../types';
   import { bindingKey, dataKey, displayValue, withState } from '../uiblocks';
+  import { i18n } from '../i18n.svelte';
   import Chart from './Chart.svelte';
   import Kpi from './Kpi.svelte';
   import Math from './Math.svelte';
@@ -73,8 +74,8 @@
 
 {#if !block.spec}
   <article class="block fallback" data-testid="ui-block-fallback">
-    <p>{block.reason || 'UI block tidak tersedia.'}</p>
-    <p class="hint">Jawaban teks tetap disimpan.</p>
+    <p>{block.reason || i18n.t('uiBlockUnavailable')}</p>
+    <p class="hint">{i18n.t('textAnswerKept')}</p>
   </article>
 {:else}
   <article class="block" data-testid="ui-block" data-block-id={block.blockId} aria-label={block.spec.title || block.spec.summary}>
@@ -140,7 +141,7 @@
       {/each}
     </div>
 
-    {#if showErrors}<p class="note" data-testid="ui-local-note">Menampilkan galat secara lokal.</p>{/if}
+    {#if showErrors}<p class="note" data-testid="ui-local-note">{i18n.t('localErrors')}</p>{/if}
   </article>
 {/if}
 

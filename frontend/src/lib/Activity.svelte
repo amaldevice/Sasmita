@@ -1,5 +1,6 @@
 <script lang="ts">
   import { activityLabel, isActiveStatus } from './activity';
+  import { i18n } from './i18n.svelte';
   import type { ToolStep } from './types';
 
   interface Props {
@@ -17,15 +18,15 @@
   function phaseLabel(phase: ToolStep['phase']): string {
     switch (phase) {
       case 'proposed':
-        return 'usulan';
+        return i18n.t('phaseProposed');
       case 'executed':
-        return 'dijalankan';
+        return i18n.t('phaseExecuted');
       case 'artifact':
-        return 'artefak';
+        return i18n.t('phaseArtifact');
       case 'denied':
-        return 'ditolak';
+        return i18n.t('phaseDenied');
       default:
-        return 'gagal';
+        return i18n.t('phaseFailed');
     }
   }
 </script>
@@ -35,20 +36,20 @@
     {#if working}
       <span class="spinner" data-testid="activity-spinner" aria-hidden="true"></span>
     {/if}
-    <span>{working ? `Bekerja ${elapsedSeconds} dtk` : activityLabel(status)}</span>
+    <span>{working ? `${i18n.t('working').replace('…', '')} ${elapsedSeconds} ${i18n.t('seconds')}` : activityLabel(status)}</span>
     {#if steps.length > 0}
       <button
         class="disclose"
         class:open={expanded}
         data-testid="timeline-toggle"
         aria-expanded={expanded}
-        aria-label={expanded ? 'Tutup linimasa' : 'Buka linimasa'}
+        aria-label={expanded ? i18n.t('closeTimeline') : i18n.t('openTimeline')}
         onclick={() => (expanded = !expanded)}
       >›</button>
     {/if}
   </div>
   {#if !cancelling}
-    <button type="button" data-testid="cancel-run" onclick={onCancel}>Hentikan</button>
+    <button type="button" data-testid="cancel-run" onclick={onCancel}>{i18n.t('stopRun')}</button>
   {/if}
 </div>
 

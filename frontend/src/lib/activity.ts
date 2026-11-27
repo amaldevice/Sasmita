@@ -1,3 +1,4 @@
+import { i18n } from './i18n.svelte';
 import type { RunEvent, RunRecord, RunSnapshot } from './types';
 
 /** TAD §8.3 states that still represent in-flight work. */
@@ -25,19 +26,19 @@ export function canContinue(run: RunRecord | null | undefined): boolean {
 export function activityLabel(status: string): string {
   switch (status) {
     case 'queued':
-      return 'Dalam antrean…';
+      return i18n.t('statusQueued');
     case 'preparing':
-      return 'Menyiapkan…';
+      return i18n.t('statusPreparing');
     case 'cancelling':
-      return 'Menghentikan…';
+      return i18n.t('statusCancelling');
     case 'awaiting_approval':
-      return 'Menunggu persetujuan…';
+      return i18n.t('statusAwaitingApproval');
     case 'awaiting_user':
-      return 'Menunggu jawaban…';
+      return i18n.t('statusAwaitingUser');
     case 'paused':
-      return 'Dijeda';
+      return i18n.t('statusPaused');
     default:
-      return 'Bekerja…';
+      return i18n.t('working');
   }
 }
 
