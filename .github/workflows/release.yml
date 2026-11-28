@@ -34,6 +34,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check brand assets
+        run: |
+          test -f shell/mygo/resources/icon.png
+          test -f shell/mygo/resources/icon-dev.png
+
       - name: Install pinned MyGo CLI
         run: |
           go install github.com/egoist/mygo/cmd/mygo@v0.10.0
@@ -42,6 +47,13 @@ jobs:
       - name: Build app and DMG
         working-directory: shell/mygo
         run: mygo build
+
+      - name: Verify packaged app
+        run: |
+          test -f frontend-dist/index.html
+          test -f build/darwin-arm64/Sasmita.app/Contents/Resources/AppIcon.icns
+          test "$(plutil -extract CFBundleIconFile raw build/darwin-arm64/Sasmita.app/Contents/Info.plist)" = "AppIcon.icns"
+          hdiutil verify build/darwin-arm64/*.dmg
 
       - name: Checksum
         run: shasum -a 256 build/darwin-arm64/*.dmg > build/darwin-arm64/SHA256SUMS.txt
