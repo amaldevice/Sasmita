@@ -45,13 +45,12 @@ Requires macOS 12 or later (Apple Silicon), Go 1.27.3, and Node.js 22+. Versions
 ```sh
 git clone https://github.com/amaldevice/Sasmita.git
 cd Sasmita
-npm ci
-go install github.com/egoist/mygo/cmd/mygo@v0.10.0
-export PATH="$(go env GOPATH)/bin:$PATH"
-cd shell/mygo && mygo build
+./scripts/build-app.sh
 ```
 
-The build is complete when `build/darwin-arm64/` contains a `.dmg` and `hdiutil verify` reports `checksum VALID`. The commands used by CI are in `.github/workflows/ci.yml`; the tested build record is in `docs/benchmarks/package-build-final.md`.
+The script installs the pinned MyGo CLI into a temporary directory, builds the frontend, embeds it, and checks the resulting `AppIcon.icns`, `Info.plist`, and DMG checksum. The build is complete when it prints `OK: build/darwin-arm64/ ...`. The tested build record is in `docs/benchmarks/package-build-final.md`.
+
+A plain `go build` in `shell/mygo` is not a release build: that binary has no embedded frontend and shows a "no frontend" page. Use the script or download a DMG instead.
 
 </details>
 
